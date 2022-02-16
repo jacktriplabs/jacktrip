@@ -219,7 +219,7 @@ jobs:
         with:
           python-version: '3.x'
       - name: set signing secrets for macOS
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && (matrix.bundle-path || matrix.installer-path)
         env:
           APP_SIGNING_CERT_BASE64: ${{ secrets.APP_SIGNING_CERT_BASE64}}
           INSTALLER_SIGNING_CERT_BASE64: ${{ secrets.INSTALLER_SIGNING_CERT_BASE64 }}
@@ -238,6 +238,7 @@ jobs:
           # create temporary keychain
           security create-keychain -p "$KEYCHAIN_PWD" $KEYCHAIN_PATH
           security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security default-keychain -s $KEYCHAIN_PATH
           security unlock-keychain -p "$KEYCHAIN_PWD" $KEYCHAIN_PATH
 
           # import certificate to keychain
