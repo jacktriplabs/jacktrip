@@ -218,6 +218,32 @@ jobs:
         uses: actions/setup-python@v2
         with:
           python-version: '3.x'
+      - name: set signing secrets for macOS
+        if: runner.os == 'macOS'
+        env:
+          APP_SIGNING_CERT_BASE64: ${{ secrets.APP_SIGNING_CERT_BASE64}}
+          INSTALLER_SIGNING_CERT_BASE64: ${{ secrets.INSTALLER_SIGNING_CERT_BASE64 }}
+          CERT_PASSPHRASE: ${{ secrets.CERT_PASSPHRASE }}
+          KEYCHAIN_PWD: ${{ secrets.KEYCHAIN_PWD }}
+        run: |
+          # create variables
+          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+          INSTALLER_CERT_PATH=$RUNNER_TEMP/installer_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          # import certificate and provisioning profile from secrets
+          echo -n "$APP_SIGNING_CERT_BASE64" | base64 --decode --output $CERTIFICATE_PATH
+          echo -n "$INSTALLER_SIGNING_CERT_BASE64" | base64 --decode --output $INSTALLER_CERT_PATH
+          
+          # create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PWD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PWD" $KEYCHAIN_PATH
+
+          # import certificate to keychain
+          security import $CERTIFICATE_PATH -P "$CERT_PASSPHRASE" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security import $INSTALLER_CERT_PATH -P "$CERT_PASSPHRASE" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
       - name: install dependencies for Linux
         if: runner.os == 'Linux'
         run: |
@@ -419,10 +445,15 @@ jobs:
           fi
       - name: create app bundle and installer on macOS
         if: runner.os == 'macOS' && (matrix.bundle-path || matrix.installer-path)
+        env:
+          CERTIFICATE: ${{ secrets.APP_CERT_NAME }}
+          PACKAGE_CERT: ${{ secrets.INSTALLER_CERT_NAME }}
+          USERNAME: app@jacktrip.org
+          PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PWD}}
         run: |
           CONFIG=
           if [[ -n "${{ matrix.installer-path }}" ]]; then 
-            CONFIG="-i $CONFIG"
+            CONFIG="-in -c $CERTIFICATE -d $PACKAGE_CERT -u $USERNAME -p PASSWORD $CONFIG"
           fi
           cd macos
           ./assemble_app.sh $CONFIG
