@@ -51,10 +51,10 @@ jobs:
             bundled-rtaudio: true
             nogui: false
             weakjack: true
-            jacktrip-path: jacktrip
-            binary-path: binary
-            bundle-path: bundle
-            installer-path: installer
+            # jacktrip-path: jacktrip
+            # binary-path: binary
+            # bundle-path: bundle
+            # installer-path: installer
             build-system: qmake
 
           - name: macOS-x64-meson-clang-shared-bundled_rtaudio
