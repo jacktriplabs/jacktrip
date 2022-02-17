@@ -458,6 +458,7 @@ jobs:
           fi
           cd macos
           ./assemble_app.sh $CONFIG
+          echo "Assemble complete"
           if [[ -n ${{ matrix.bundle-path }} ]]; then
             mkdir -p $BUILD_PATH/${{ matrix.bundle-path }}
             zip --symlinks -r $BUILD_PATH/${{ matrix.bundle-path }}/JackTrip-${{ steps.set-version.outputs.version }}-${{ steps.set-version.outputs.name }}-application.zip *.app
