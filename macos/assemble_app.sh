@@ -74,6 +74,9 @@ while getopts ":inhc:d:u:p:a:b:" opt; do
      esac
 done
 
+echo "BUILD INSTALLER: ${BUILD_INSTALLER}"
+echo "NOTARIZE: ${NOTARIZE}"
+
 shift $((OPTIND - 1))
 [ "${1:-}" = "--" ] && shift
 
