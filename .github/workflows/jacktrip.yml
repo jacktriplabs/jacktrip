@@ -454,10 +454,10 @@ jobs:
         run: |
           CONFIG=
           if [[ -n "${{ matrix.installer-path }}" ]]; then 
-            CONFIG="JackTrip org.jacktrip.jacktrip -i -n -c \"${CERTIFICATE}\" -d \"${PACKAGE_CERT}\" -u \"${USERNAME}\" -p \"${PASSWORD}\" $CONFIG"
+            CONFIG="-i -n -c \"${CERTIFICATE}\" -d \"${PACKAGE_CERT}\" -u \"${USERNAME}\" -p \"${PASSWORD}\" JackTrip org.jacktrip.jacktrip $CONFIG"
           fi
           cd macos
-          ./assemble_app.sh $CONFIG
+          echo $CONFIG | xargs ./assemble_app.sh
           echo "Assemble complete"
           if [[ -n ${{ matrix.bundle-path }} ]]; then
             mkdir -p $BUILD_PATH/${{ matrix.bundle-path }}
