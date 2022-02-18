@@ -6,7 +6,9 @@ on:
       - build
     types:
       - completed
-    branches: [main, dev]
+    branches: 
+      - main
+      - dev
 jobs:
   build:
     runs-on: ${{ matrix.runs-on }}
