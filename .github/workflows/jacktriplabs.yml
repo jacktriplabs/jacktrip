@@ -64,6 +64,7 @@ jobs:
         run: |
           brew install qt5
           brew link qt5 --force
+          brew install packages
       - name: set signing secrets for macOS
         if: runner.os == 'macOS' && (matrix.bundle-path || matrix.installer-path)
         env:
