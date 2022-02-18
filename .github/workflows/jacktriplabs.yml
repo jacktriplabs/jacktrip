@@ -1,8 +1,10 @@
 name: sign artifacts
 on:
   workflow_run:
-    workflows: [build]
-    types: [completed]
+    workflows:
+      - build
+    types:
+      - completed
 
 jobs:
   build:
