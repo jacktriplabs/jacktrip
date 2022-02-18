@@ -582,7 +582,9 @@ jobs:
           PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PWD}}
         run: |
           # Copy jacktrip binary where assemple_app.sh looks for it
-          cp ${{ env.BUILD_PATH }}/${{ matrix.binary-path }}/JackTrip-${{ steps.set-version.outputs.version }}-${{ steps.set-version.outputs.name }}-binary ${{ env.BUILD_PATH }}/jacktrip
+          cp ${{ env.BUILD_PATH }}/${{ matrix.binary-path }}/JackTrip-${{ steps.set-version.outputs.version }}-${{ steps.set-version.outputs.name }}-binary.zip ${{ env.BUILD_PATH }}/jacktrip.zip
+          unzip ${{ env.BUILD_PATH }}/jacktrip.zip -x LICENSE* -d "${{ env.BUILD_PATH }}"
+          rm ${{ env.BUILD_PATH }}/jacktrip.zip
 
           CONFIG=
           if [[ -n "${{ matrix.installer-path }}" ]]; then 
