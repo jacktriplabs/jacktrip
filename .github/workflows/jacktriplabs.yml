@@ -10,7 +10,7 @@ on:
       - main
       - dev
 jobs:
-  build:
+  sign:
     runs-on: ${{ matrix.runs-on }}
     name: ${{ matrix.name }}
     strategy:
@@ -19,6 +19,7 @@ jobs:
         include:
           - name: Sign macOS artifacts
             release-name: macOS-x64
+            build-job-name: macOS-x64-qmake-clang-static
             runs-on: macos-10.15
             binary-path: binary
             bundle-path: bundle
@@ -26,9 +27,10 @@ jobs:
             
           - name: Sign Windows artifacts
             release-name: Windows-x64
+            build-job-name: Windows-x64-qmake-gcc-static-bundled_rtaudio
             runs-on: windows-2019
             binary-path: binary
-            installer-path: installer
+            # installer-path: installer
 
     env:
       BUILD_PATH: ${{ github.workspace }}/builddir
@@ -50,7 +52,7 @@ jobs:
           if [[ -n "${{ matrix.release-name }}" && "$GITHUB_REF" == refs/tags/* ]]; then
             NAME="${{ matrix.release-name }}"
           else
-            NAME="${{ matrix.name }}"
+            NAME="${{ matrix.build-job-name }}"
           fi
           echo "::set-output name=version::$VERSION"
           echo "::set-output name=name::$NAME"
@@ -106,7 +108,9 @@ jobs:
           PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PWD}}
         run: |
           # Copy jacktrip binary where assemple_app.sh looks for it
-          cp ${{ env.BUILD_PATH }}/${{ matrix.binary-path }}/JackTrip-${{ steps.set-version.outputs.version }}-${{ steps.set-version.outputs.name }}-binary ${{ env.BUILD_PATH }}/jacktrip
+          cp ${{ env.BUILD_PATH }}/${{ matrix.binary-path }}/JackTrip-${{ steps.set-version.outputs.version }}-${{ steps.set-version.outputs.name }}-binary.zip ${{ env.BUILD_PATH }}/jacktrip.zip
+          unzip ${{ env.BUILD_PATH }}/jacktrip.zip -x LICENSE* -d "${{ env.BUILD_PATH }}"
+          rm ${{ env.BUILD_PATH }}/jacktrip.zip
 
           CONFIG=
           if [[ -n "${{ matrix.installer-path }}" ]]; then 

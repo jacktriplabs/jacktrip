@@ -504,7 +504,7 @@ jobs:
             build-job-name: Windows-x64-qmake-gcc-static-bundled_rtaudio
             runs-on: windows-2019
             binary-path: binary
-            installer-path: installer
+            # installer-path: installer
 
     env:
       BUILD_PATH: ${{ github.workspace }}/builddir
