@@ -1,4 +1,4 @@
-name: sign artifacts
+name: build and sign
 on:
   workflow_dispatch:
   workflow_run:
