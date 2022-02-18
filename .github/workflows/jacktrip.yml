@@ -493,6 +493,7 @@ jobs:
         include:
           - name: Sign macOS artifacts
             release-name: macOS-x64
+            build-job-name: macOS-x64-qmake-clang-static
             runs-on: macos-10.15
             binary-path: binary
             bundle-path: bundle
@@ -500,6 +501,7 @@ jobs:
             
           - name: Sign Windows artifacts
             release-name: Windows-x64
+            build-job-name: Windows-x64-qmake-gcc-static-bundled_rtaudio
             runs-on: windows-2019
             binary-path: binary
             installer-path: installer
@@ -524,7 +526,7 @@ jobs:
           if [[ -n "${{ matrix.release-name }}" && "$GITHUB_REF" == refs/tags/* ]]; then
             NAME="${{ matrix.release-name }}"
           else
-            NAME="${{ matrix.name }}"
+            NAME="${{ matrix.build-job-name }}"
           fi
           echo "::set-output name=version::$VERSION"
           echo "::set-output name=name::$NAME"
