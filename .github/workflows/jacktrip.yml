@@ -619,8 +619,8 @@ jobs:
           PASSWORD: ${{ secrets.SSL_COM_PWD}}
         shell: cmd
         run: |
-          cd win/CodeSignTool
-          call CodeSignTool sign -credential_id=%CRED_ID% -username=%USERNAME% -password=%PASSWORD% -totp_secret=%TOTP% -output_dir_path=%BUILD_PATH%/%{{ matrix.installer-path }}% -input_file_path=%BUILD_PATH%/%{{ matrix.installer-path }}%/JackTrip-%{{ steps.set-version.outputs.version }}%-%{{ steps.set-version.outputs.name }}%-installer.msi
+          cd win\CodeSignTool
+          call CodeSignTool sign -credential_id=%CRED_ID% -username=%USERNAME% -password=%PASSWORD% -totp_secret=%TOTP% -output_dir_path=%BUILD_PATH%\%{{ matrix.installer-path }}% -input_file_path=%BUILD_PATH%\%{{ matrix.installer-path }}%\JackTrip-%{{ steps.set-version.outputs.version }}%-%{{ steps.set-version.outputs.name }}%-installer.msi
       - name: upload application bundle
         uses: actions/upload-artifact@v2
         if: matrix.bundle-path && (!startsWith(github.ref, 'refs/tags/') || (startsWith(github.ref, 'refs/tags/') && matrix.release-name))
