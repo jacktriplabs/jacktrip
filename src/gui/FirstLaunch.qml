@@ -32,7 +32,7 @@ Item {
         background: Rectangle {
             radius: 10
             color: vsButton.down ? "#E7E8E8" : "#F2F3F3"
-            border.width: vsButton.down ? 1 : 0.3
+            border.width: 1
             border.color: vsButton.down ? "#B0B5B5" : "#EAEBEB"
             layer.enabled: vsButton.hovered && !vsButton.down
             layer.effect: DropShadow {
@@ -73,7 +73,7 @@ Item {
         background: Rectangle {
             radius: 10
             color: standardButton.down ? "#E7E8E8" : "#F2F3F3"
-            border.width: standardButton.down ? 1 : 0.3
+            border.width: 1
             border.color: standardButton.down ? "#B0B5B5" : "#EAEBEB"
             layer.enabled: standardButton.hovered && !standardButton.down
             layer.effect: DropShadow {
