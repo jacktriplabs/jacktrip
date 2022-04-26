@@ -199,6 +199,8 @@ jobs:
         run: |
           mkdir %QT_STATIC_BUILD_PATH%
           call "%QT_SRC_PATH%/configure.bat" -static-runtime -opengl desktop -platform win32-g++ -prefix "%QT_STATIC_BUILD_PATH%" -openssl -openssl-linked -I "C:\Program Files\OpenSSL-Win64\include" -L "C:\Program Files\OpenSSL-Win64\lib"  OPENSSL_LIBS="-llibssl_static.lib -llibcrypto_static.lib" %QT_STATIC_OPTIONS%
+          type "%QT_SRC_PATH%/config.log"
+          type "config.log"
           echo "building Qt"
           mingw32-make -j4
           echo "installing Qt"
