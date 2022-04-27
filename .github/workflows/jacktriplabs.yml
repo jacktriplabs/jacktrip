@@ -177,7 +177,7 @@ jobs:
           # move qt to a known location
           mv qt-everywhere* $QT_SRC_PATH
       - name: build static Qt on Linux / macOS
-        if: matrix.static-qt-version && steps.cache-static-qt.outputs.cache-hit != 'true' && runner.os != 'Windows'
+        if: matrix.static-qt-version && runner.os != 'Windows'
         run: |
           mkdir $QT_STATIC_BUILD_PATH
           # configure
