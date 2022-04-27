@@ -216,6 +216,9 @@ bool isRunFromCmd()
 
 int main(int argc, char* argv[])
 {
+    // turn on the DPI support**
+    QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+
     QScopedPointer<QCoreApplication> app(createApplication(argc, argv));
     QScopedPointer<JackTrip> jackTrip;
     QScopedPointer<UdpHubListener> udpHub;
