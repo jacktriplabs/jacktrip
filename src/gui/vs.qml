@@ -6,6 +6,7 @@ Rectangle {
     height: 577
     color: "#FAFBFB"
     state: virtualstudio.showFirstRun ? "start" : "login"
+    anchors.fill: parent
 
     id: window
     states: [
@@ -85,6 +86,6 @@ Rectangle {
         function onAuthFailed() { loginScreen.failTextVisible = true }
         //function onConnected() { }
         function onDisconnected() { window.state = "browse" }
-        function onRefreshFinished() {browseScreen.refreshing = false }
+        function onRefreshFinished() { browseScreen.refreshing = false }
     }
 }
