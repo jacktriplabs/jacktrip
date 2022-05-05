@@ -175,7 +175,7 @@ Item {
             anchors { horizontalCenter: parent.horizontalCenter; verticalCenter: parent.verticalCenter }
         }
     }
-    
+
     // Button {
     //     id: darkButton
     //     background: Rectangle {
