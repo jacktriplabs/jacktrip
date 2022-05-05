@@ -283,6 +283,9 @@ jobs:
           choco install jack --version=1.9.17 --no-progress
           if [[ "${{ matrix.system-rtaudio }}" == true && -n "${{ matrix.vcpkg-triplet }}" ]]; then 
             choco install pkgconfiglite --no-progress
+            if [[ "${{ matrix.build-system }}" == "qmake" && -n "${{ matrix.static-qt-version }}" && -n "${{ matrix.vcpkg-triplet }}" ]]; then 
+              vcpkg install openssl --triplet="${{ matrix.vcpkg-triplet }}"
+            fi
             # check out an older version of rtaudio library, see issue #408
             cd $VCPKG_INSTALLATION_ROOT
             git fetch origin f60125a3a1f527f1bbeeff6ccfdde43634a64235

@@ -130,6 +130,9 @@ jobs:
           choco install jack --version=1.9.17 --no-progress
           if [[ "${{ matrix.system-rtaudio }}" == true && -n "${{ matrix.vcpkg-triplet }}" ]]; then 
             choco install pkgconfiglite --no-progress
+            if [[ "${{ matrix.build-system }}" == "qmake" && -n "${{ matrix.static-qt-version }}" && -n "${{ matrix.vcpkg-triplet }}" ]]; then 
+              vcpkg install openssl --triplet="${{ matrix.vcpkg-triplet }}"
+            fi
             # check out an older version of rtaudio library, see issue #408
             cd $VCPKG_INSTALLATION_ROOT
             git fetch origin f60125a3a1f527f1bbeeff6ccfdde43634a64235
@@ -193,13 +196,6 @@ jobs:
           # install
           echo "installing Qt"
           make install
-      - name: install openssl for Windows static builds
-        if: matrix.static-qt-version && runner.os == 'Windows'
-        shell: bash
-        run: |
-          if [[ -n "${{ matrix.vcpkg-triplet }}" ]]; then 
-            vcpkg install openssl --triplet="${{ matrix.vcpkg-triplet }}"
-          fi
       - name: build static Qt on Windows
         if: matrix.static-qt-version && steps.cache-static-qt.outputs.cache-hit != 'true' && runner.os == 'Windows'
         shell: cmd
