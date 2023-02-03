@@ -647,24 +647,18 @@ jobs:
           else
             VERSION=${GITHUB_SHA::7}
           fi
-          if [[ -n "${{ matrix.release-name }}" && "$GITHUB_REF" == refs/tags/* ]]; then
-            NAME="${{ matrix.release-name }}"
-          else
-            NAME="${{ matrix.build-job-name }}"
-          fi
-          echo "::set-output name=version::$VERSION"
-          echo "::set-output name=name::$NAME"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
       - name: Retrieve binary artifact
         uses: actions/download-artifact@v2
         if: matrix.binary-path && (!startsWith(github.ref, 'refs/tags/') || (startsWith(github.ref, 'refs/tags/') && matrix.release-name))
         with:
-          name: JackTrip-${{ steps.set-version.outputs.version }}-${{ steps.set-version.outputs.name }}-binary
+          name: JackTrip-${{ steps.set-version.outputs.version }}-${{ matrix.release-name }}-binary
           path: ${{ env.BUILD_PATH }}/${{ matrix.binary-path }}
       - name: Retrieve Windows installer artifact
         uses: actions/download-artifact@v2
         if: runner.os == 'Linux' && matrix.installer-path && (!startsWith(github.ref, 'refs/tags/') || (startsWith(github.ref, 'refs/tags/') && matrix.release-name))
         with:
-          name: JackTrip-${{ steps.set-version.outputs.version }}-${{ steps.set-version.outputs.name }}-installer
+          name: JackTrip-${{ steps.set-version.outputs.version }}-${{ matrix.release-name }}-installer
           path: ${{ env.BUILD_PATH }}/${{ matrix.installer-path }}
       - name: sign artifacts for Windows
         if: runner.os == 'Linux' && matrix.installer-path
@@ -678,14 +672,14 @@ jobs:
           curl -L -O -J https://storage.googleapis.com/files.jacktrip.org/binaries/CodeSignTool/CodeSignTool-jars.zip
           unzip CodeSignTool-jars.zip
           mkdir signed
-          ./CodeSignTool.sh sign -credential_id=$CRED_ID -username=$USERNAME -password=$PASSWORD -totp_secret=$TOTP -output_dir_path=signed -input_file_path=$BUILD_PATH/${{ matrix.installer-path }}/JackTrip-${{ steps.set-version.outputs.version }}-${{ steps.set-version.outputs.name }}-installer.msi
-          cp signed/JackTrip-${{ steps.set-version.outputs.version }}-${{ steps.set-version.outputs.name }}-installer.msi $BUILD_PATH/${{ matrix.installer-path }}/JackTrip-${{ steps.set-version.outputs.version }}-${{ steps.set-version.outputs.name }}-signed-installer.msi
-          rm $BUILD_PATH/${{ matrix.installer-path }}/JackTrip-${{ steps.set-version.outputs.version }}-${{ steps.set-version.outputs.name }}-installer.msi
+          ./CodeSignTool.sh sign -credential_id=$CRED_ID -username=$USERNAME -password=$PASSWORD -totp_secret=$TOTP -output_dir_path=signed -input_file_path=$BUILD_PATH/${{ matrix.installer-path }}/JackTrip-${{ steps.set-version.outputs.version }}-${{ matrix.release-name }}-installer.msi
+          cp signed/JackTrip-${{ steps.set-version.outputs.version }}-${{ matrix.release-name }}-installer.msi $BUILD_PATH/${{ matrix.installer-path }}/JackTrip-${{ steps.set-version.outputs.version }}-${{ matrix.release-name }}-signed-installer.msi
+          rm $BUILD_PATH/${{ matrix.installer-path }}/JackTrip-${{ steps.set-version.outputs.version }}-${{ matrix.release-name }}-installer.msi
       - name: upload installer
         uses: actions/upload-artifact@v2
         if: matrix.installer-path && (!startsWith(github.ref, 'refs/tags/') || (startsWith(github.ref, 'refs/tags/') && matrix.release-name))
         with:
-          name: JackTrip-${{ steps.set-version.outputs.version }}-${{ steps.set-version.outputs.name }}-signed-installer
+          name: JackTrip-${{ steps.set-version.outputs.version }}-${{ matrix.release-name }}-signed-installer
           path: ${{ env.BUILD_PATH }}/${{ matrix.installer-path }}
   # release - list of files uploaded to GH release is specified in the *upload* step
   deploy_gh:
