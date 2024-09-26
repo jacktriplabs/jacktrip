@@ -50,12 +50,6 @@
 #include "jacktrip_globals.h"
 #include "jacktrip_types.h"
 
-#if defined(_WIN32)
-typedef SOCKET socket_type;
-#else
-typedef int socket_type;
-#endif
-
 /** \brief UDP implementation of DataProtocol class
  *
  * The class has a <tt>bind port</tt> and a <tt>peer port</tt>. The meaning of these
@@ -99,7 +93,11 @@ class UdpDataProtocol : public DataProtocol
      */
     void setPeerAddress(const char* peerHostOrIP);
 
-    void setSocket(socket_type& socket);
+#if defined(_WIN32)
+    void setSocket(SOCKET& socket);
+#else
+    void setSocket(int& socket);
+#endif
 
     void processControlPacket(const char* buf);
 
@@ -170,11 +168,11 @@ class UdpDataProtocol : public DataProtocol
    protected:
     /** \brief Binds the UDP socket to the available address and specified port
      */
-    socket_type bindSocket();
-
-    /** \brief Setup QoS for the network socket/flow
-     */
-    bool setSocketQos(socket_type& sock_fd);
+#if defined(_WIN32)
+    SOCKET bindSocket();
+#else
+    int bindSocket();
+#endif
 
     /** \brief This function blocks until data is available for reading in the
      * socket. The function will timeout after timeout_msec microseconds.
