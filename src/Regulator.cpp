@@ -104,7 +104,7 @@ constexpr double AutoInitValFactor =
 // tweak
 constexpr int WindowDivisor = 8;  // for faster auto tracking
 constexpr double AutoHeadroomGlitchTolerance =
-    0.01;  // Acceptable rate of skips before auto headroom is increased (1.0%)
+    0.02;  // Acceptable rate of skips before auto headroom is increased (2.0%)
 constexpr double AutoHistoryWindow =
     60;  // rolling window of time (in seconds) over which auto tolerance roughly adjusts
 constexpr double AutoSmoothingFactor =
@@ -477,7 +477,7 @@ void Regulator::updateTolerance(int glitches, int skipped)
     if (mAutoHeadroom < 0) {
         // variable headroom: automatically increase to minimize glitch counts
         // only increase headroom if doing so would have reduced the number of
-        // glitches that occured over the past second by 1% or more.
+        // glitches that occured over the past two seconds by 2% or more.
         // prevent headroom from growing beyond rolling average of max.
         const int skipsAllowed =
             static_cast<int>(AutoHeadroomGlitchTolerance * mSampleRate / mPeerFPP);
@@ -486,7 +486,6 @@ void Regulator::updateTolerance(int glitches, int skipped)
             if (mSkipAutoHeadroom) {
                 mSkipAutoHeadroom = false;
             } else {
-                // don't increase headroom two intervals in a row
                 mSkipAutoHeadroom = true;
                 ++mCurrentHeadroom;
                 cout << "PLC glitches=" << glitches << " skipped=" << skipped << ">"
@@ -494,8 +493,7 @@ void Regulator::updateTolerance(int glitches, int skipped)
                      << " (max=" << pushStat->longTermMax << ")" << endl;
             }
         } else {
-            // require 2 seconds in a row if headroom >= two packet intervals
-            mSkipAutoHeadroom = mMsecTolerance >= (mPeerFPPdurMsec * 2);
+            mSkipAutoHeadroom = true;
         }
     } else {
         // fixed headroom
@@ -593,8 +591,7 @@ bool Regulator::pullPacket()
                 if (skipped < 0)
                     skipped += NumSlots;
             }
-            // check if packet's age matches tolerance, or is the best candidate we have
-            if (mIncomingTiming[next] + mMsecTolerance >= now || i == 0) {
+            if (mIncomingTiming[next] + mMsecTolerance >= now) {
                 // next is the best candidate
                 memcpy(mXfrBuffer, mSlots[next], mPeerBytes);
                 mLastSeqNumOut = next;
