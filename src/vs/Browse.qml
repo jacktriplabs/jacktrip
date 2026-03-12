@@ -29,9 +29,7 @@ Item {
     property string buttonHoverStroke: virtualstudio.darkMode ? "#7B7777" : "#BABCBC"
     property string buttonPressedStroke: virtualstudio.darkMode ? "#827D7D" : "#BABCBC"
 
-    function refresh() {
-        virtualstudio.refreshStudios(currentIndex, true)
-    }
+    property string browseHomeUrl: `https://${virtualstudio.apiHost === "test.jacktrip.com" ? "next-test.jacktrip.com" : "www.jacktrip.com"}`
 
     Loader {
         id: webLoader
@@ -103,23 +101,31 @@ Item {
         color: backgroundColour
 
         Button {
-            id: refreshButton
+            id: homeButton
+            text: "Home"
+            palette.buttonText: textColour
+            icon {
+                source: "home.svg";
+                color: textColour;
+            }
             background: Rectangle {
                 radius: 6 * virtualstudio.uiScale
-                color: refreshButton.down ? buttonPressedColour : (refreshButton.hovered ? buttonHoverColour : buttonColour)
+                color: homeButton.down ? buttonPressedColour : (homeButton.hovered ? buttonHoverColour : buttonColour)
                 border.width: 1
-                border.color: refreshButton.down ? buttonPressedStroke : (refreshButton.hovered ? buttonHoverStroke : buttonStroke)
+                border.color: homeButton.down ? buttonPressedStroke : (homeButton.hovered ? buttonHoverStroke : buttonStroke)
             }
-            onClicked: { refresh() }
+            onClicked: { if (webLoader.item) webLoader.item.url = browseHomeUrl }
+            display: AbstractButton.TextBesideIcon
+            font {
+                family: "Poppins";
+                pixelSize: fontMedium * virtualstudio.fontScale * virtualstudio.uiScale;
+            }
+            leftPadding: 0
+            rightPadding: 4
+            spacing: 0
             anchors.verticalCenter: parent.verticalCenter
             x: 16 * virtualstudio.uiScale
-            width: buttonWidth * virtualstudio.uiScale; height: buttonHeight * virtualstudio.uiScale
-            Text {
-                text: "Refresh List"
-                font { family: "Poppins"; pixelSize: fontMedium * virtualstudio.fontScale * virtualstudio.uiScale }
-                anchors {horizontalCenter: parent.horizontalCenter; verticalCenter: parent.verticalCenter }
-                color: textColour
-            }
+            width: (buttonWidth + extraSettingsButtonWidth) * virtualstudio.uiScale; height: buttonHeight * virtualstudio.uiScale
         }
 
         Button {
@@ -175,22 +181,5 @@ Item {
     }
 
     FeedbackSurvey {
-    }
-
-    Connections {
-        target: virtualstudio
-        // Need to do this to avoid layout issues with our section header.
-        function onNewScale() {
-            studioListView.positionViewAtEnd();
-            studioListView.positionViewAtBeginning();
-            scrollY = studioListView.contentY;
-        }
-        function onRefreshFinished(index) {
-            if (index == -1) {
-                studioListView.contentY = scrollY
-            } else {
-                studioListView.positionViewAtIndex(index, ListView.Beginning);
-            }
-        }
     }
 }
