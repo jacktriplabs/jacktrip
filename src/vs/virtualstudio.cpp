@@ -1006,7 +1006,7 @@ void VirtualStudio::loadSettings()
     // use setters to emit signals for these if they change; otherwise, the
     // user interface will not revert back after cancelling settings changes
     setUiScale(settings.value(QStringLiteral("UiScale"), 1).toFloat());
-    setDarkMode(settings.value(QStringLiteral("DarkMode"), false).toBool());
+    setDarkMode(settings.value(QStringLiteral("DarkMode"), true).toBool());
     setShowDeviceSetup(settings.value(QStringLiteral("ShowDeviceSetup"), true).toBool());
     setShowWarnings(settings.value(QStringLiteral("ShowWarnings"), true).toBool());
     settings.endGroup();

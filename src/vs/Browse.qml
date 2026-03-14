@@ -22,12 +22,6 @@ Item {
 
     property string backgroundColour: virtualstudio.darkMode ? "#272525" : "#FAFBFB"
     property string textColour: virtualstudio.darkMode ? "#FAFBFB" : "#0F0D0D"
-    property string buttonColour: virtualstudio.darkMode ? "#494646" : "#EAECEC"
-    property string buttonHoverColour: virtualstudio.darkMode ? "#5B5858" : "#D3D4D4"
-    property string buttonPressedColour: virtualstudio.darkMode ? "#524F4F" : "#DEE0E0"
-    property string buttonStroke: virtualstudio.darkMode ? "#80827D7D" : "#40979797"
-    property string buttonHoverStroke: virtualstudio.darkMode ? "#7B7777" : "#BABCBC"
-    property string buttonPressedStroke: virtualstudio.darkMode ? "#827D7D" : "#BABCBC"
 
     property string browseDiscoverUrl: `https://${virtualstudio.apiHost === "test.jacktrip.com" ? "next-test.jacktrip.com" : "www.jacktrip.com"}/discover`
     property string browseStudiosUrl: `https://${virtualstudio.apiHost === "test.jacktrip.com" ? "next-test.jacktrip.com" : "www.jacktrip.com"}/studios`
@@ -59,7 +53,7 @@ Item {
             settings.javascriptCanPaste: true
             settings.screenCaptureEnabled: true
             settings.playbackRequiresUserGesture: false
-            url: browseDiscoverUrl
+            url: browseStudiosUrl
 
             onContextMenuRequested: function(request) {
                 // this disables the default context menu: https://doc.qt.io/qt-6.2/qml-qtwebengine-contextmenurequest.html#accepted-prop
@@ -101,26 +95,13 @@ Item {
         border.color: "#33979797"
         color: backgroundColour
 
-        Button {
-            id: discoverButton
-            text: "Discover"
-            palette.buttonText: textColour
-            icon {
-                source: "public.svg";
-                color: textColour;
-            }
-            background: Rectangle {
-                radius: 6 * virtualstudio.uiScale
-                color: discoverButton.down ? buttonPressedColour : (discoverButton.hovered ? buttonHoverColour : buttonColour)
-                border.width: 1
-                border.color: discoverButton.down ? buttonPressedStroke : (discoverButton.hovered ? buttonHoverStroke : buttonStroke)
-            }
-            onClicked: { if (webLoader.item) webLoader.item.url = browseDiscoverUrl }
+        StyledButton {
+            id: studiosButton
+            text: "My Studios"
+            icon { source: "squares-2x2.svg"; color: resolvedTextColor }
+            onClicked: { if (webLoader.item) webLoader.item.url = browseStudiosUrl }
             display: AbstractButton.TextBesideIcon
-            font {
-                family: "Poppins";
-                pixelSize: fontMedium * virtualstudio.fontScale * virtualstudio.uiScale;
-            }
+            fontSize: fontMedium
             leftPadding: 0
             rightPadding: 4
             spacing: 0
@@ -129,26 +110,13 @@ Item {
             width: (buttonWidth + extraSettingsButtonWidth) * virtualstudio.uiScale; height: buttonHeight * virtualstudio.uiScale
         }
 
-        Button {
-            id: studiosButton
-            text: "My Studios"
-            palette.buttonText: textColour
-            icon {
-                source: "squares-2x2.svg";
-                color: textColour;
-            }
-            background: Rectangle {
-                radius: 6 * virtualstudio.uiScale
-                color: studiosButton.down ? buttonPressedColour : (studiosButton.hovered ? buttonHoverColour : buttonColour)
-                border.width: 1
-                border.color: studiosButton.down ? buttonPressedStroke : (studiosButton.hovered ? buttonHoverStroke : buttonStroke)
-            }
-            onClicked: { if (webLoader.item) webLoader.item.url = browseStudiosUrl }
+        StyledButton {
+            id: discoverButton
+            text: "Discover"
+            icon { source: "public.svg"; color: resolvedTextColor }
+            onClicked: { if (webLoader.item) webLoader.item.url = browseDiscoverUrl }
             display: AbstractButton.TextBesideIcon
-            font {
-                family: "Poppins";
-                pixelSize: fontMedium * virtualstudio.fontScale * virtualstudio.uiScale;
-            }
+            fontSize: fontMedium
             leftPadding: 0
             rightPadding: 4
             spacing: 0
@@ -157,26 +125,13 @@ Item {
             width: (buttonWidth + extraSettingsButtonWidth) * virtualstudio.uiScale; height: buttonHeight * virtualstudio.uiScale
         }
 
-        Button {
+        StyledButton {
             id: aboutButton
             text: "About"
-            palette.buttonText: textColour
-            icon {
-                source: "question-mark-circle.svg";
-                color: textColour;
-            }
-            background: Rectangle {
-                radius: 6 * virtualstudio.uiScale
-                color: aboutButton.down ? buttonPressedColour : (aboutButton.hovered ? buttonHoverColour : buttonColour)
-                border.width: 1
-                border.color: aboutButton.down ? buttonPressedStroke : (aboutButton.hovered ? buttonHoverStroke : buttonStroke)
-            }
+            icon { source: "question-mark-circle.svg"; color: resolvedTextColor }
             onClicked: { virtualstudio.showAbout() }
             display: AbstractButton.TextBesideIcon
-            font {
-                family: "Poppins";
-                pixelSize: fontMedium * virtualstudio.fontScale * virtualstudio.uiScale;
-            }
+            fontSize: fontMedium
             leftPadding: 0
             rightPadding: 4
             spacing: 0
@@ -185,26 +140,13 @@ Item {
             width: buttonWidth * virtualstudio.uiScale; height: buttonHeight * virtualstudio.uiScale
         }
 
-        Button {
+        StyledButton {
             id: settingsButton
             text: "Settings"
-            palette.buttonText: textColour
-            icon {
-                source: "cog.svg";
-                color: textColour;
-            }
-            background: Rectangle {
-                radius: 6 * virtualstudio.uiScale
-                color: settingsButton.down ? buttonPressedColour : (settingsButton.hovered ? buttonHoverColour : buttonColour)
-                border.width: 1
-                border.color: settingsButton.down ? buttonPressedStroke : (settingsButton.hovered ? buttonHoverStroke : buttonStroke)
-            }
+            icon { source: "cog.svg"; color: resolvedTextColor }
             onClicked: { virtualstudio.windowState = "settings"; audio.startAudio(); }
             display: AbstractButton.TextBesideIcon
-            font {
-                family: "Poppins";
-                pixelSize: fontMedium * virtualstudio.fontScale * virtualstudio.uiScale;
-            }
+            fontSize: fontMedium
             leftPadding: 0
             rightPadding: 4
             spacing: 0

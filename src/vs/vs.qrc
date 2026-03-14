@@ -23,6 +23,7 @@
     <file>VolumeSlider.qml</file>
     <file>DeviceControls.qml</file>
     <file>DeviceControlsGroup.qml</file>
+    <file>StyledButton.qml</file>
     <file>DeviceRefreshButton.qml</file>
     <file>DeviceWarning.qml</file>
     <file>DeviceWarningModal.qml</file>
