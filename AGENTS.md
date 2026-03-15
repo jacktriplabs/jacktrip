@@ -2,6 +2,15 @@
 
 JackTrip is a high-quality audio network performance system for bidirectional, uncompressed audio streaming over the Internet. It's a C++20 desktop application using Qt 6, supporting Linux, macOS and Windows.
 
+## Branching
+
+Always create new branches from the latest commit on the `dev` branch:
+
+```bash
+git fetch origin
+git checkout -b your-branch-name origin/dev
+```
+
 ## Build Commands
 
 **Build system**: Meson (primary). CMake exists but is legacy/unsupported.
