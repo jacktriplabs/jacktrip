@@ -153,7 +153,11 @@ jackd -d dummy -r 48000 -p 1024 &
 
 Then start the hub server: `./builddir/jacktrip -S`
 
-To test a client connecting to the local hub server: `./builddir/jacktrip -C 127.0.0.1 -o 1` (port offset avoids conflict when both run on the same host).
+To test a client connecting to the local hub server on the same host, use separate bind and peer ports (the server listens on TCP 4464, so the client must keep peer port at 4464 but use a different bind port):
+  ```bash
+  ./builddir/jacktrip -C 127.0.0.1 -B 4465 -P 4464
+  ```
+  Note: `-o` offsets **both** bind and peer ports, which breaks same-host testing since the client would try to connect to the wrong TCP port.
 
 Use `jack_lsp` to verify JACK ports are registered after a client connects.
 
