@@ -123,3 +123,50 @@ Prefer sourcing icons from [heroicons.com](https://heroicons.com). Download the 
 - **Member variables**: `m` prefix (`mAudioInterface`, `mDataProtocol`)
 - Heavy use of Qt signals/slots, `QObject`, `Q_PROPERTY`
 - Pointers: left-aligned (`int* ptr`, not `int *ptr`)
+
+## Cursor Cloud specific instructions
+
+### Building in the cloud VM
+
+The default C compiler on the VM is clang, which fails meson's C++ compiler check due to missing libstdc++ headers. Always set `CC=gcc CXX=g++` when running `meson setup`:
+
+```bash
+CC=gcc CXX=g++ meson setup -Dnogui=true -Drtaudio=enabled \
+  -Drtaudio:jack=disabled -Drtaudio:default_library=static \
+  -Drtaudio:alsa=enabled -Drtaudio:pulse=disabled -Drtaudio:werror=false \
+  -Dnofeedback=true -Dlibsamplerate=enabled -Ddefault_library=shared builddir
+
+meson compile -C builddir
+```
+
+- Use `-Dnogui=true` for headless/CLI builds (avoids X11/GUI dependencies).
+- Use `-Dnovs=true` instead if you want the classic GUI but not Virtual Studio (requires additional Qt6 GUI/Widgets packages).
+- Git submodules must be initialized: `git submodule update --init --recursive`.
+
+### Running the hub server
+
+The hub server **requires a running JACK daemon**. Start JACK with a dummy audio driver first:
+
+```bash
+jackd -d dummy -r 48000 -p 1024 &
+```
+
+Then start the hub server: `./builddir/jacktrip -S`
+
+To test a client connecting to the local hub server: `./builddir/jacktrip -C 127.0.0.1 -o 1` (port offset avoids conflict when both run on the same host).
+
+Use `jack_lsp` to verify JACK ports are registered after a client connects.
+
+### Linting
+
+The CI runs clang-format version 13; the cloud VM has a newer version which may flag pre-existing style differences. Run on changed files only to match CI behavior:
+
+```bash
+clang-format --dry-run --Werror src/YourFile.cpp
+```
+
+### Gotchas
+
+- `meson setup` downloads RtAudio as a subproject automatically if not found on the system; this requires network access.
+- Rebuilding after source changes: `meson compile -C builddir` (incremental).
+- To reconfigure: `meson configure builddir -Doption=value` or wipe with `rm -rf builddir`.
