@@ -202,6 +202,7 @@ jobs:
             macosx-architectures: 'x86_64;arm64'
             macosx-deployment-target: 12
             xcode-directory: /Applications/Xcode_16.2.app
+            #xcode-sdk-path: /Library/Developer/CommandLineTools/SDKs/MacOSX15.2.sdk
 
           - name: macOS-x64-meson-clang-shared
             release-name: macOS-x64
@@ -224,6 +225,7 @@ jobs:
             macosx-architectures: 'x86_64;arm64'
             macosx-deployment-target: 12
             xcode-directory: /Applications/Xcode_16.2.app
+            #xcode-sdk-path: /Library/Developer/CommandLineTools/SDKs/MacOSX15.2.sdk
 
           - name: Windows-x64-meson-msvc-static
             release-name: Windows-x64-nogui
@@ -236,6 +238,7 @@ jobs:
             libsamplerate: true
             qt-version: '6.8.3'
             qt-type: 'static'
+            qt-download-commit: '6a62938'
             jacktrip-path: jacktrip.exe
             binary-path: binary
             build-system: meson
@@ -252,6 +255,7 @@ jobs:
             libsamplerate: true
             qt-version: '6.8.3'
             qt-type: 'dynamic'
+            qt-download-commit: '6a62938'
             jacktrip-path: jacktrip.exe
             installer-path: installer
             binary-path: binary
@@ -265,7 +269,7 @@ jobs:
       CLANG_TIDY_PATH: ${{ github.workspace }}/clang-tidy-result
       VST3SDK_DOWNLOAD_BASE_URL: 'https://files.jacktrip.org/contrib/vst3sdk'
       QT_DOWNLOAD_BASE_URL: 'https://files.jacktrip.org/contrib/qt'
-      QT_DOWNLOAD_COMMIT: '6a62938'
+      QT_DOWNLOAD_COMMIT: 'f34d2e9'
 
     steps:
       - uses: actions/checkout@v3
@@ -294,8 +298,22 @@ jobs:
         with:
           python-version: '3.x'
       - name: Select Xcode version
-        if: runner.os == 'macOS' && matrix.xcode-directory
-        run: sudo xcode-select -s ${{ matrix.xcode-directory }}
+        if: runner.os == 'macOS'
+        run: |
+          if [[ -n "${{ matrix.xcode-directory }}" ]]; then
+            sudo xcode-select -s ${{ matrix.xcode-directory }}
+          fi
+          if [[ -n "${{ matrix.xcode-sdk-path }}" ]]; then
+            export SDKROOT="${{ matrix.xcode-sdk-path }}"
+            echo "SDKROOT=${{ matrix.xcode-sdk-path }}" >> $GITHUB_ENV
+          fi
+          xcode-select -p
+          xcrun --sdk macosx --show-sdk-path
+          # Remove broken clang v15 installed by homebrew on github runners
+          which clang++
+          brew remove llvm\@15
+          which clang++
+          clang++ --version
       - name: install dependencies for Linux
         if: runner.os == 'Linux' && matrix.build-system != 'docker'
         run: |
@@ -625,14 +643,8 @@ jobs:
           elif [[ "${{ matrix.novs }}" == true ]]; then
             CONFIG_STRING="-Dnovs=true $CONFIG_STRING"
           elif [[ "${{ needs.check-secrets.outputs.should_run }}" == "true" ]]; then
-            if [[ "${{ runner.os }}" == 'Windows' ]]; then
-              # signed JTL builds for Windows use ASIO and Qt commercial license
-              # because licenses for classic mode and Qt are not compatible with ASIO
-              CONFIG_STRING="-Dnoclassic=true -Dqtedition=commercial $CONFIG_STRING"
-            else
-              # prefer virtual studio interface for JackTrip Labs builds on Linux
-              CONFIG_STRING="-Dvsftux=true $CONFIG_STRING"
-            fi
+            # prefer virtual studio interface for signed JackTrip Labs builds
+            CONFIG_STRING="-Dvsftux=true $CONFIG_STRING"
           fi
           if [[ -n "${{ matrix.vst3sdk-version }}" && "${{ matrix.build-system }}" != "docker" && "${{ runner.os }}" == 'Linux' ]]; then
             CONFIG_STRING="-Dvst-sdkdir=$VST3SDK_INSTALL_PATH $CONFIG_STRING"
