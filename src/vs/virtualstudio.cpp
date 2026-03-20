@@ -211,10 +211,10 @@ VirtualStudio::VirtualStudio(UserInterface& parent)
         QStringLiteral("permissions"),
         QVariant::fromValue(&m_audioConfigPtr->getPermissions()));
     m_view->setSource(QUrl(QStringLiteral("qrc:/vs/vs.qml")));
-    m_view->setMinimumSize(QSize(800, 640));
+    m_view->setMinimumSize(QSize(VS_DEFAULT_WINDOW_WIDTH, VS_DEFAULT_WINDOW_HEIGHT));
     // m_view->setMaximumSize(QSize(696, 577));
     m_view->setResizeMode(QQuickView::SizeRootObjectToView);
-    m_view->resize(800 * m_uiScale, 640 * m_uiScale);
+    m_view->resize(m_savedWindowWidth, m_savedWindowHeight);
 
     // Connect our timers
     connect(this, &VirtualStudio::scheduleStudioRefresh, this,
@@ -1009,6 +1009,10 @@ void VirtualStudio::loadSettings()
     setDarkMode(settings.value(QStringLiteral("DarkMode"), true).toBool());
     setShowDeviceSetup(settings.value(QStringLiteral("ShowDeviceSetup"), true).toBool());
     setShowWarnings(settings.value(QStringLiteral("ShowWarnings"), true).toBool());
+    m_savedWindowWidth =
+        settings.value(QStringLiteral("WindowWidth"), VS_DEFAULT_WINDOW_WIDTH).toInt();
+    m_savedWindowHeight =
+        settings.value(QStringLiteral("WindowHeight"), VS_DEFAULT_WINDOW_HEIGHT).toInt();
     settings.endGroup();
 
     m_audioConfigPtr->loadSettings();
@@ -1023,6 +1027,8 @@ void VirtualStudio::saveSettings()
     settings.setValue(QStringLiteral("DarkMode"), m_darkMode);
     settings.setValue(QStringLiteral("ShowDeviceSetup"), m_showDeviceSetup);
     settings.setValue(QStringLiteral("ShowWarnings"), m_showWarnings);
+    settings.setValue(QStringLiteral("WindowWidth"), m_view->width());
+    settings.setValue(QStringLiteral("WindowHeight"), m_view->height());
     settings.endGroup();
 
     m_audioConfigPtr->saveSettings();
@@ -1344,6 +1350,13 @@ void VirtualStudio::exit()
     if (m_isExiting) {
         emit signalExit();
     }
+
+    // persist window dimensions before exiting
+    QSettings settings;
+    settings.beginGroup(QStringLiteral("VirtualStudio"));
+    settings.setValue(QStringLiteral("WindowWidth"), m_view->width());
+    settings.setValue(QStringLiteral("WindowHeight"), m_view->height());
+    settings.endGroup();
 
     // triggering isExitingChanged will force any WebEngine things to close properly
     m_isExiting = true;

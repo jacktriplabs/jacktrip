@@ -1271,7 +1271,19 @@ void VsAudioWorker::validateInputDevicesState()
     // actually exists
     if (getInputDevice() == QStringLiteral("")
         || m_inputDeviceList.indexOf(getInputDevice()) == -1) {
-        m_parentPtr->setInputDevice(m_inputDeviceList[0]);
+        // Prefer the OS default device; fall back to first available
+        QString defaultDevice;
+        for (const auto& device : m_devices) {
+            if (device.isDefaultInput && device.inputChannels > 0) {
+                defaultDevice = QString::fromStdString(device.name);
+                break;
+            }
+        }
+        if (!defaultDevice.isEmpty() && m_inputDeviceList.contains(defaultDevice)) {
+            m_parentPtr->setInputDevice(defaultDevice);
+        } else {
+            m_parentPtr->setInputDevice(m_inputDeviceList[0]);
+        }
     }
 
     // Given the currently selected input device, reset the available input channel
@@ -1396,7 +1408,19 @@ void VsAudioWorker::validateOutputDevicesState()
     // actually exists
     if (getOutputDevice() == QStringLiteral("")
         || m_outputDeviceList.indexOf(getOutputDevice()) == -1) {
-        m_parentPtr->setOutputDevice(m_outputDeviceList[0]);
+        // Prefer the OS default device; fall back to first available
+        QString defaultDevice;
+        for (const auto& device : m_devices) {
+            if (device.isDefaultOutput && device.outputChannels > 0) {
+                defaultDevice = QString::fromStdString(device.name);
+                break;
+            }
+        }
+        if (!defaultDevice.isEmpty() && m_outputDeviceList.contains(defaultDevice)) {
+            m_parentPtr->setOutputDevice(defaultDevice);
+        } else {
+            m_parentPtr->setOutputDevice(m_outputDeviceList[0]);
+        }
     }
 
     // Given the currently selected output device, reset the available output channel
