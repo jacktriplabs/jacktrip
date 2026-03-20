@@ -1009,8 +1009,10 @@ void VirtualStudio::loadSettings()
     setDarkMode(settings.value(QStringLiteral("DarkMode"), true).toBool());
     setShowDeviceSetup(settings.value(QStringLiteral("ShowDeviceSetup"), true).toBool());
     setShowWarnings(settings.value(QStringLiteral("ShowWarnings"), true).toBool());
-    m_savedWindowWidth  = settings.value(QStringLiteral("WindowWidth"), VS_DEFAULT_WINDOW_WIDTH).toInt();
-    m_savedWindowHeight = settings.value(QStringLiteral("WindowHeight"), VS_DEFAULT_WINDOW_HEIGHT).toInt();
+    m_savedWindowWidth =
+        settings.value(QStringLiteral("WindowWidth"), VS_DEFAULT_WINDOW_WIDTH).toInt();
+    m_savedWindowHeight =
+        settings.value(QStringLiteral("WindowHeight"), VS_DEFAULT_WINDOW_HEIGHT).toInt();
     settings.endGroup();
 
     m_audioConfigPtr->loadSettings();

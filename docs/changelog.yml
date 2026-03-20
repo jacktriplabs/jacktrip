@@ -1,10 +1,15 @@
 - Version: "3.0.0-beta1"
   Date: 2026-03-20
   Description:
-  - (added) VS Mode embed jacktrip.com website into desktop app
+  - (added) VS Mode now uses jacktrip.com for studios list
   - (added) Hub server support for WebTransport connections
   - (added) Hub server support for WebRTC datachannel connections
-  - (updated) Re-enable classic mode for Windows builds
+  - (updated) Default OSC port is now hub server port + 1
+  - (updated) Re-enabling classic mode for signed Windows builds
+  - (updated) VS Mode prefer default audio devices on first run
+  - (updated) VS Mode restore previously used window dimensions
+  - (fixed) Potential hub server crash if invalid peer settings
+  - (fixed) Stats timer lifecycle issues
 - Version: "2.7.2"
   Date: 2026-02-06
   Description:
