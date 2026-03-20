@@ -39,6 +39,9 @@
 
 #include <QString>
 
+constexpr int VS_DEFAULT_WINDOW_WIDTH  = 800;
+constexpr int VS_DEFAULT_WINDOW_HEIGHT = 640;
+
 const QString AUTH_AUTHORIZE_URI = QStringLiteral("https://auth.jacktrip.org/authorize");
 const QString AUTH_TOKEN_URI   = QStringLiteral("https://auth.jacktrip.org/oauth/token");
 const QString AUTH_AUDIENCE    = QStringLiteral("https://api.jacktrip.org");
