@@ -1,3 +1,10 @@
+- Version: "3.0.0-beta1"
+  Date: 2026-03-20
+  Description:
+  - (added) VS Mode embed jacktrip.com website into desktop app
+  - (added) Hub server support for WebTransport connections
+  - (added) Hub server support for WebRTC datachannel connections
+  - (updated) Re-enable classic mode for Windows builds
 - Version: "2.7.2"
   Date: 2026-02-06
   Description:
