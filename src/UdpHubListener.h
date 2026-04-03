@@ -57,10 +57,7 @@
 class WebRtcPeerConnection;
 #endif
 #ifdef WEBTRANSPORT_SUPPORT
-// Forward declare msquic types
-struct QUIC_API_TABLE;
-struct QUIC_HANDLE;
-typedef QUIC_HANDLE* HQUIC;
+#include "http3/Http3Server.h"
 #endif
 #ifndef NO_JACK
 #include "Patcher.h"
@@ -245,23 +242,8 @@ class UdpHubListener : public QObject
 #endif
 
 #ifdef WEBTRANSPORT_SUPPORT
-    /// \brief msquic API table
-    const QUIC_API_TABLE* mQuicApi;
-
-    /// \brief msquic registration handle
-    HQUIC mQuicRegistration;
-
-    /// \brief msquic configuration handle
-    HQUIC mQuicConfiguration;
-
-    /// \brief msquic listener handle (for QUIC connections on UDP)
-    HQUIC mQuicListener;
-
-    /// \brief Initialize msquic library
-    bool initMsQuic();
-
-    /// \brief Cleanup msquic resources
-    void cleanupMsQuic();
+    /// \brief QUIC/HTTP3 server lifecycle (msquic wrapper)
+    Http3Server* mHttp3Server;
 #endif
 
 #ifdef WAIR  // wair
@@ -340,15 +322,6 @@ class UdpHubListener : public QObject
 #ifdef WEBRTC_SUPPORT
     /// \brief Set ICE servers for WebRTC connections
     void setIceServers(const QStringList& servers) { mIceServers = servers; }
-#endif
-
-#ifdef WEBTRANSPORT_SUPPORT
-   public:
-    /// \brief Handle incoming QUIC connection (must be public for static callback)
-    unsigned int handleQuicConnection(HQUIC connection, void* event);
-
-    /// \brief Handle listener events (must be public for static callback)
-    unsigned int handleListenerEvent(HQUIC listener, void* event);
 #endif
 };
 
