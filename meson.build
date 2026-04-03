@@ -466,6 +466,8 @@ if found_msquic
 	defines += '-DWEBTRANSPORT_SUPPORT'
 	deps += msquic_dep
 	src += [
+		'src/http3/Http3Protocol.cpp',
+		'src/http3/Http3Server.cpp',
 		'src/webtransport/WebTransportSession.cpp',
 		'src/webtransport/WebTransportDataProtocol.cpp'
 	]

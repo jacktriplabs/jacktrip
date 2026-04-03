@@ -4,7 +4,7 @@ This document describes JackTrip’s **on-the-wire protocol** as implemented in 
 
 ### Scope and non-goals
 
-- **In scope**: the real-time **UDP audio stream**, its headers and payload layout, the optional **UDP redundancy** framing, the small **UDP “stop” control packet**, and the **TCP handshake** used by hub/ping-server style deployments (including the authentication variant).
+- **In scope**: the real-time **UDP audio stream**, its headers and payload layout, the optional **UDP redundancy** framing, the small **UDP “stop” control packet**, the **TCP handshake** used by hub/ping-server style deployments (including the authentication variant), the **WebRTC data channel transport** (used by webtrip and the hub server’s WebRTC path), and the **WebTransport transport** (HTTP/3 over QUIC datagrams).
 - **Out of scope**: local-only IPC (e.g. `QLocalSocket` “AudioSocket”), OSC control, and any higher-level application semantics outside packet exchange.
 
 ### Transports at a glance
@@ -12,6 +12,8 @@ This document describes JackTrip’s **on-the-wire protocol** as implemented in 
 - **UDP (audio)**: real-time audio is sent as UDP datagrams containing `PacketHeader` + raw audio payload.
 - **UDP (control)**: a small fixed-size “stop” datagram is used to signal shutdown.
 - **TCP (hub/ping-server handshake)**: a short-lived TCP connection is used to exchange ephemeral UDP port information (and optionally do TLS + credentials). The client sends 4 bytes representing the port number it is binding to, and the server responds by sending 4 bytes representing its own port number.
+- **WebRTC data channel (audio)**: webtrip and the JackTrip hub server’s WebRTC path use a WebRTC data channel to carry the same packet format (header + planar audio payload) as the UDP stream. The same interleaving conversion applies. See `WebRtcDataProtocol.cpp`.
+- **WebTransport / QUIC datagrams (audio)**: the hub server’s WebTransport path uses HTTP/3 over QUIC (via msquic) with unreliable QUIC datagrams (RFC 9221) to carry the same packet format as the UDP stream. The WebTransport session is established with an HTTP/3 CONNECT request before audio flows. See `src/webtransport/` and `src/http3/`.
 
 ---
 
@@ -107,6 +109,8 @@ This is explicit in `UdpDataProtocol` which converts between:
 
 - **Internal**: interleaved layout \([n][c]\)
 - **Network**: planar layout \([c][n]\)
+
+For **mono** (\(C = 1\)) there is no difference between planar and interleaved layouts, so no conversion is needed. Multi-channel conversion also applies on the WebRTC data channel path (see `WebRtcDataProtocol.cpp`) and the WebTransport path.
 
 See `UdpDataProtocol::sendPacketRedundancy()` and `UdpDataProtocol::receivePacketRedundancy()` in `src/UdpDataProtocol.cpp`.
 
@@ -236,6 +240,78 @@ On supported platforms, JackTrip attempts to mark UDP packets as “voice” tra
 - macOS: uses `SO_NET_SERVICE_TYPE` with `NET_SERVICE_TYPE_VO` (best-effort).
 
 See `src/UdpDataProtocol.cpp`.
+
+---
+
+## WebRTC data channel transport
+
+JackTrip's WebRTC path carries the same audio packet format as the UDP stream but over a WebRTC data channel. It enables NAT traversal through ICE and is implemented in `src/webrtc/` using the libdatachannel library.
+
+### Why an unordered, unreliable data channel
+
+The data channel is configured for **unordered, unreliable** delivery — equivalent to UDP semantics — to minimise latency. Retransmissions and head-of-line blocking are explicitly disabled.
+
+### Protocol detection on the TCP connection
+
+The hub server reuses the existing TCP handshake socket to multiplex both legacy UDP clients and WebRTC clients. On initial connection the server inspects the first bytes received:
+
+- **Legacy UDP client**: sends a raw 32-bit little-endian port number → normal hub/ping-server handshake proceeds.
+- **WebRTC client**: sends a JSON object containing a `"protocol"` field → the server switches into WebRTC signaling mode on the same socket.
+
+See `WebRtcSignalingProtocol::isWebRtcSignaling()` in `src/webrtc/WebRtcSignalingProtocol.cpp`.
+
+### Signaling message framing
+
+All signaling messages are JSON objects framed with a **4-byte big-endian length prefix** over the TCP socket:
+
+```
+[4-byte length (BE)] [JSON payload]
+```
+
+### Signaling flow
+
+1. Client sends `PROTOCOL_DETECT` message: `{"type": "protocol_detect", "protocol": 2, "clientName": "…", "version": 1}`.
+2. Server responds with its own `PROTOCOL_DETECT` acknowledgement.
+3. Client sends an `OFFER` message containing its SDP.
+4. Server sets the remote description, generates an answer, and sends an `ANSWER` message.
+5. Both sides exchange `ICE_CANDIDATE` messages as ICE candidates are gathered.
+6. ICE + DTLS handshake completes; the data channel (label `"audio"`) opens.
+7. Audio datagrams flow bidirectionally over the data channel.
+
+Either side can send a `HANGUP` message to terminate the session.
+
+### Packet format
+
+Identical to UDP: the standard JackTrip packet header followed by the planar audio payload. The same non-interleaved channel layout and interleaving conversion apply. No additional framing is added inside the data channel message.
+
+See `src/webrtc/WebRtcDataProtocol.cpp`, `src/webrtc/WebRtcPeerConnection.cpp`, and `src/webrtc/WebRtcSignalingProtocol.cpp`.
+
+---
+
+## WebTransport transport (HTTP/3 / QUIC datagrams)
+
+JackTrip's WebTransport path carries the same audio packet format as the UDP stream but over HTTP/3 using unreliable QUIC datagrams (RFC 9221). It is implemented in `src/webtransport/` and `src/http3/`, using Microsoft's msquic library.
+
+### Why QUIC datagrams
+
+QUIC datagrams provide UDP-like unreliable, unordered delivery without head-of-line blocking, which makes them well suited for low-latency audio. The QUIC transport layer still handles path MTU discovery and congestion signalling.
+
+### Connection setup
+
+1. The server starts an `Http3Server` (backed by msquic) listening on a configured UDP port with a TLS certificate.
+2. The client opens a QUIC connection and performs a TLS handshake.
+3. Both sides exchange HTTP/3 `SETTINGS` frames on their respective control streams to advertise WebTransport support and datagram receipt capability.
+4. The client sends an HTTP/3 `CONNECT` request with `:protocol: webtransport` and a path such as `/webtransport?name=MyClient`. The optional `name` query parameter identifies the client (equivalent to the remote name in the TCP handshake).
+5. The server replies with HTTP/3 status `200`, accepting the session.
+6. Audio datagrams flow bidirectionally once the session is accepted.
+
+Each QUIC datagram payload is prefixed with a **quarter stream ID** (a QUIC varint encoding of `stream_id / 4`) per the WebTransport-over-HTTP/3 framing spec, followed immediately by the standard JackTrip packet (header + planar audio payload). Receivers strip the quarter stream ID prefix before processing.
+
+### Packet format
+
+Identical to UDP: `DefaultHeaderStruct` (or the selected header type) followed by the planar audio payload. Redundancy and all other payload conventions apply unchanged.
+
+See `src/webtransport/WebTransportSession.cpp`, `src/http3/Http3Server.cpp`, and `src/http3/Http3Protocol.cpp`.
 
 ---
 
