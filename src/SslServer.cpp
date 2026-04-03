@@ -46,14 +46,23 @@ void SslServer::incomingConnection(qintptr socketDescriptor)
     // an SslSocket rather than a regular socket.
     QSslSocket* sslSocket = new QSslSocket(this);
     sslSocket->setSocketDescriptor(socketDescriptor);
-    sslSocket->setLocalCertificate(m_certificate);
+    // Send the full certificate chain (leaf + intermediates) so browsers can
+    // verify trust all the way to a root CA. setLocalCertificate sends only the
+    // leaf cert, which causes browsers to reject the connection when intermediate
+    // CA certs are not already in their trust store.
+    sslSocket->setLocalCertificateChain(m_certificateChain);
     sslSocket->setPrivateKey(m_privateKey);
     this->addPendingConnection(sslSocket);
 }
 
 void SslServer::setCertificate(const QSslCertificate& certificate)
 {
-    m_certificate = certificate;
+    m_certificateChain = {certificate};
+}
+
+void SslServer::setCertificateChain(const QList<QSslCertificate>& chain)
+{
+    m_certificateChain = chain;
 }
 
 void SslServer::setPrivateKey(const QSslKey& key)

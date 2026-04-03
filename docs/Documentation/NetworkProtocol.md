@@ -4,7 +4,7 @@ This document describes JackTrip’s **on-the-wire protocol** as implemented in 
 
 ### Scope and non-goals
 
-- **In scope**: the real-time **UDP audio stream**, its headers and payload layout, the optional **UDP redundancy** framing, the small **UDP “stop” control packet**, the **TCP handshake** used by hub/ping-server style deployments (including the authentication variant), the **WebRTC data channel transport** (used by webtrip and the hub server’s WebRTC path), and the **WebTransport transport** (HTTP/3 over QUIC datagrams).
+- **In scope**: the real-time **UDP audio stream**, its headers and payload layout, the optional **UDP redundancy** framing, the small **UDP “stop” control packet**, the **TCP handshake** used by hub/ping-server style deployments (including the authentication variant), the **WebRTC data channel transport** (used by the hub server’s WebRTC path), and the **WebTransport transport** (HTTP/3 over QUIC datagrams).
 - **Out of scope**: local-only IPC (e.g. `QLocalSocket` “AudioSocket”), OSC control, and any higher-level application semantics outside packet exchange.
 
 ### Transports at a glance
@@ -12,7 +12,7 @@ This document describes JackTrip’s **on-the-wire protocol** as implemented in 
 - **UDP (audio)**: real-time audio is sent as UDP datagrams containing `PacketHeader` + raw audio payload.
 - **UDP (control)**: a small fixed-size “stop” datagram is used to signal shutdown.
 - **TCP (hub/ping-server handshake)**: a short-lived TCP connection is used to exchange ephemeral UDP port information (and optionally do TLS + credentials). The client sends 4 bytes representing the port number it is binding to, and the server responds by sending 4 bytes representing its own port number.
-- **WebRTC data channel (audio)**: webtrip and the JackTrip hub server’s WebRTC path use a WebRTC data channel to carry the same packet format (header + planar audio payload) as the UDP stream. The same interleaving conversion applies. See `WebRtcDataProtocol.cpp`.
+- **WebRTC data channel (audio)**: JackTrip hub server’s WebRTC path uses a WebRTC data channel to carry the same packet format (header + planar audio payload) as the UDP stream. Signaling uses an encrypted WebSocket (`wss://`) on the hub TCP port; plain `ws://` is not accepted. The same interleaving conversion applies. See `WebRtcDataProtocol.cpp`.
 - **WebTransport / QUIC datagrams (audio)**: the hub server’s WebTransport path uses HTTP/3 over QUIC (via msquic) with unreliable QUIC datagrams (RFC 9221) to carry the same packet format as the UDP stream. The WebTransport session is established with an HTTP/3 CONNECT request before audio flows. See `src/webtransport/` and `src/http3/`.
 
 ---
@@ -251,14 +251,60 @@ JackTrip's WebRTC path carries the same audio packet format as the UDP stream bu
 
 The data channel is configured for **unordered, unreliable** delivery — equivalent to UDP semantics — to minimise latency. Retransmissions and head-of-line blocking are explicitly disabled.
 
-### Protocol detection on the TCP connection
+### Transport requirement: encrypted WebSocket (WSS)
 
-The hub server reuses the existing TCP handshake socket to multiplex both legacy UDP clients and WebRTC clients. On initial connection the server inspects the first bytes received:
+WebRTC clients **must** connect using an encrypted WebSocket (`wss://`). Plain-text WebSocket (`ws://`) is not accepted. This requirement exists because browsers only allow `wss://` from HTTPS pages, and because the TLS layer is what allows the server to multiplex WebRTC and legacy binary clients on the same port (see "Protocol detection" below).
 
-- **Legacy UDP client**: sends a raw 32-bit little-endian port number → normal hub/ping-server handshake proceeds.
-- **WebRTC client**: sends a JSON object containing a `"protocol"` field → the server switches into WebRTC signaling mode on the same socket.
+The server must be started with `--certfile` and `--keyfile` for WebRTC connections to succeed. Without a loaded TLS certificate, any TLS ClientHello is rejected with a logged error and the connection is closed.
 
-See `WebRtcSignalingProtocol::isWebRtcSignaling()` in `src/webrtc/WebRtcSignalingProtocol.cpp`.
+### Protocol detection on the hub TCP port
+
+The hub server multiplexes three connection types on a single TCP listen port. The server inspects the first three bytes of each new connection to route it correctly:
+
+| First 3 bytes (hex)             | Interpretation                                                                    |
+| ------------------------------- | --------------------------------------------------------------------------------- |
+| `16 03 01` through `16 03 04`   | TLS ClientHello (browser `wss://`) — start TLS handshake; re-detect after decrypt |
+| Anything else                   | Legacy binary hub protocol — read 32-bit LE port number                           |
+
+After the TLS handshake completes the server inspects the first decrypted bytes:
+
+| Decrypted content              | Interpretation                                               |
+| ------------------------------ | ------------------------------------------------------------ |
+| `GET /ping …`                  | Health-check endpoint — responds `{"status":"OK"}` and closes |
+| `GET /webrtc …`                | HTTP WebSocket upgrade → WebRTC signaling path               |
+| Other `GET …`                  | Unsupported path — responds HTTP 404 and closes              |
+| Other binary data              | Authenticated binary hub protocol (credentials follow)       |
+
+**Why 3 bytes are needed for unambiguous TLS detection**
+
+The binary protocol sends a 32-bit little-endian port number (≤ 65535) as its first 4 bytes, which means bytes 2 and 3 are always `0x00`. TLS record headers always have byte 2 set to `0x01`–`0x04` (the TLS minor version). Checking only the first byte would produce false positives: port 22 (`{0x16, 0x00, …}`) and port 790 (`{0x16, 0x03, 0x00, …}`) both start with byte sequences that overlap with TLS. Requiring all three bytes `{0x16, 0x03, 0x01–0x04}` is provably collision-free with any valid port number.
+
+See `UdpHubListener::readyRead()` in `src/UdpHubListener.cpp`.
+
+### Health-check endpoint (`GET /ping`)
+
+The hub server exposes a simple health-check endpoint on the same TLS port as WebRTC signaling. It is useful for diagnosing TLS and HTTP connectivity issues before attempting a WebSocket upgrade.
+
+**Request:**
+```
+GET /ping HTTP/1.1
+```
+
+**Response:**
+```
+HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 15
+Connection: close
+
+{"status":"OK"}
+```
+
+The connection is closed immediately after the response is sent. The endpoint is only available when the binary is built with `WEBRTC_SUPPORT` and when TLS is configured (`--certfile` / `--keyfile`). A plain `curl` command can verify connectivity:
+
+```bash
+curl -k https://<host>:<port>/ping
+```
 
 ### Signaling message framing
 
@@ -270,13 +316,15 @@ All signaling messages are JSON objects framed with a **4-byte big-endian length
 
 ### Signaling flow
 
-1. Client sends `PROTOCOL_DETECT` message: `{"type": "protocol_detect", "protocol": 2, "clientName": "…", "version": 1}`.
-2. Server responds with its own `PROTOCOL_DETECT` acknowledgement.
-3. Client sends an `OFFER` message containing its SDP.
-4. Server sets the remote description, generates an answer, and sends an `ANSWER` message.
-5. Both sides exchange `ICE_CANDIDATE` messages as ICE candidates are gathered.
-6. ICE + DTLS handshake completes; the data channel (label `"audio"`) opens.
-7. Audio datagrams flow bidirectionally over the data channel.
+1. Client opens a TLS connection to the hub TCP port (`wss://`). The server detects the TLS ClientHello by its 3-byte record header and performs the TLS handshake.
+2. Client sends an HTTP `GET /webrtc` request with `Upgrade: websocket` headers. The server upgrades the connection to a WebSocket.
+3. Client sends `PROTOCOL_DETECT` message: `{"type": "protocol_detect", "protocol": 2, "clientName": "…", "version": 1}`.
+4. Server responds with its own `PROTOCOL_DETECT` acknowledgement.
+5. Client sends an `OFFER` message containing its SDP.
+6. Server sets the remote description, generates an answer, and sends an `ANSWER` message.
+7. Both sides exchange `ICE_CANDIDATE` messages as ICE candidates are gathered.
+8. ICE + DTLS handshake completes; the data channel (label `"audio"`) opens.
+9. Audio datagrams flow bidirectionally over the data channel.
 
 Either side can send a `HANGUP` message to terminate the session.
 
