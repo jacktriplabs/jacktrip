@@ -203,7 +203,8 @@ class UdpHubListener : public QObject
     // addressPortNameTriple mActiveAddress[gMaxThreads]; ///< Active address pool
     // addresses QHash<QString, uint16_t> mActiveAddressPortPair;
 
-    bool mRequireAuth;
+    bool mRequireAuth   = false;
+    bool mTlsConfigured = false;
     QString mCertFile;
     QString mKeyFile;
     QString mCredsFile;

@@ -171,9 +171,9 @@ void UdpHubListener::start()
         return;
     }
 
-    if (mRequireAuth) {
-        cout << "JackTrip HUB SERVER: Enabling authentication" << endl;
-        // Check that SSL is available
+    // Load TLS cert+key whenever both files are provided — needed for mRequireAuth and
+    // for accepting WebRTC WSS (wss://) connections via TLS sniffing on port 4464.
+    if (!mCertFile.isEmpty() && !mKeyFile.isEmpty()) {
         bool error = false;
         QString error_message;
         if (!QSslSocket::supportsSsl()) {
@@ -183,21 +183,21 @@ void UdpHubListener::start()
                 "libraries\ninstalled to enable authentication.";
         }
 
-        if (mCertFile.isEmpty()) {
-            error         = true;
-            error_message = QStringLiteral("No certificate file specified.");
-        } else if (mKeyFile.isEmpty()) {
-            error         = true;
-            error_message = QStringLiteral("No private key file specified.");
-        }
-
-        // Load our certificate and private key
         if (!error) {
             QFile certFile(mCertFile);
             if (certFile.open(QIODevice::ReadOnly)) {
-                QSslCertificate cert(certFile.readAll());
-                if (!cert.isNull()) {
-                    mTcpServer.setCertificate(cert);
+                // Read all PEM blocks from the file so that the full certificate
+                // chain (leaf + any intermediate CA certs) is sent to clients.
+                // Using QSslCertificate(data) would silently read only the first
+                // block, leaving out intermediates that browsers need to verify trust.
+                QList<QSslCertificate> chain =
+                    QSslCertificate::fromData(certFile.readAll());
+                if (!chain.isEmpty() && !chain.first().isNull()) {
+                    mTcpServer.setCertificateChain(chain);
+                    if (chain.size() > 1) {
+                        cout << "JackTrip HUB SERVER: Loaded certificate chain ("
+                             << chain.size() << " certificates)" << endl;
+                    }
                 } else {
                     error         = true;
                     error_message = QStringLiteral("Unable to load certificate file.");
@@ -225,6 +225,30 @@ void UdpHubListener::start()
             }
         }
 
+        if (error) {
+            if (mRequireAuth) {
+                emit signalError(error_message);
+                return;
+            }
+            cerr << "JackTrip HUB SERVER: TLS certificate loading failed: "
+                 << error_message.toStdString() << endl;
+        } else {
+            mTlsConfigured = true;
+        }
+    }
+
+    if (mRequireAuth) {
+        cout << "JackTrip HUB SERVER: Enabling authentication" << endl;
+        bool error = false;
+        QString error_message;
+        if (mCertFile.isEmpty()) {
+            error         = true;
+            error_message = QStringLiteral("No certificate file specified.");
+        } else if (mKeyFile.isEmpty()) {
+            error         = true;
+            error_message = QStringLiteral("No private key file specified.");
+        }
+
         if (!error) {
             QFileInfo credsInfo(mCredsFile);
             if (!credsInfo.exists() || !credsInfo.isFile()) {
@@ -243,7 +267,12 @@ void UdpHubListener::start()
     startOscServer();
 
 #ifdef WEBRTC_SUPPORT
-    cout << "JackTrip HUB SERVER: WebRTC data channels enabled" << endl;
+    if (mTlsConfigured) {
+        cout << "JackTrip HUB SERVER: WebRTC data channels enabled" << endl;
+    } else {
+        cout << "JackTrip HUB SERVER: WebRTC data channels disabled (no TLS certificate)"
+             << endl;
+    }
 #endif
 
 #ifdef WEBTRANSPORT_SUPPORT
@@ -259,17 +288,12 @@ void UdpHubListener::start()
                 }
             });
         if (mHttp3Server->start()) {
-            cout << "JackTrip HUB SERVER: WebTransport (QUIC) enabled on UDP port "
-                 << mServerPort << endl;
+            cout << "JackTrip HUB SERVER: WebTransport enabled" << endl;
         } else {
-            cerr << "JackTrip HUB SERVER: Failed to initialize WebTransport (QUIC)"
-                 << endl;
+            cerr << "JackTrip HUB SERVER: Failed to initialize WebTransport" << endl;
             delete mHttp3Server;
             mHttp3Server = nullptr;
         }
-    } else if (mRequireAuth) {
-        cerr << "JackTrip HUB SERVER: WebTransport disabled (using cert for auth only)"
-             << endl;
     } else {
         cout << "JackTrip HUB SERVER: WebTransport disabled (no TLS certificate)" << endl;
     }
@@ -299,33 +323,36 @@ void UdpHubListener::receivedNewConnection()
 
 void UdpHubListener::readyRead(QSslSocket* clientConnection)
 {
-#ifdef WEBRTC_SUPPORT
     if (!clientConnection->isEncrypted()) {
-        // Check for HTTP-based upgrade requests (starts with "GET" or "CONNECT")
-        // These are WebRTC clients using WebSocket for signaling
-        // Note: WebTransport now uses QUIC (UDP) directly via msquic
-        QByteArray peekData = clientConnection->peek(512);
-
-        if (peekData.startsWith("GET") || peekData.startsWith("CONNECT")) {
-            // Disconnect all signals from this socket to UdpHubListener
-            // before transferring ownership
-            disconnect(clientConnection, nullptr, this, nullptr);
-
-            // This looks like an HTTP/WebSocket request for WebRTC
-            // Create a WebRTC worker - this will create a peer connection
-            // that manages the signaling internally
-            // Note: ownership of clientConnection is transferred to the peer connection
-            int workerId = createWebRtcWorker(clientConnection);
-            if (workerId < 0) {
-                cerr << "JackTrip HUB SERVER: No available slots for WebRTC client"
+        // Detect TLS ClientHello by inspecting the 3-byte TLS record header:
+        //   { 0x16, 0x03, minor } where minor is 0x01–0x04 (TLS 1.0–1.3).
+        // Checking 3 bytes is unambiguous: a valid port number sent by the binary hub
+        // protocol (a 32-bit LE integer ≤ 65535) requires bytes[2] == 0x00, so no valid
+        // port can collide with the TLS prefix. Port 22 (byte[0] == 0x16) and port 790
+        // (bytes[0,1] == {0x16, 0x03}) are the nearest false-positives with a shorter
+        // check; both are ruled out by the third byte. Wait for 3 bytes if they have
+        // not yet arrived rather than making a premature decision.
+        QByteArray header = clientConnection->peek(3);
+        if (header.size() < 3) {
+            return;
+        }
+        if (static_cast<unsigned char>(header[0]) == 0x16
+            && static_cast<unsigned char>(header[1]) == 0x03
+            && static_cast<unsigned char>(header[2]) >= 0x01
+            && static_cast<unsigned char>(header[2]) <= 0x04) {
+            cout << "JackTrip HUB SERVER: TLS ClientHello detected" << endl;
+            if (!mTlsConfigured) {
+                cerr << "JackTrip HUB SERVER: Received TLS ClientHello but no "
+                        "certificate is configured. Closing connection."
                      << endl;
                 clientConnection->close();
                 clientConnection->deleteLater();
+                return;
             }
+            clientConnection->startServerEncryption();
             return;
         }
     }
-#endif  // WEBRTC_SUPPORT
 
     QHostAddress PeerAddress = clientConnection->peerAddress();
     cout << "JackTrip HUB SERVER: Client Connect Received from Address : "
@@ -334,7 +361,6 @@ void UdpHubListener::readyRead(QSslSocket* clientConnection)
     // Get UDP port from client
     // ------------------------
     QString clientName = QString();
-    cout << "JackTrip HUB SERVER: Reading data from Client..." << endl;
     int peer_udp_port;
     if (!clientConnection->isEncrypted()) {
         if (clientConnection->bytesAvailable() < (int)sizeof(qint32)) {
@@ -374,6 +400,59 @@ void UdpHubListener::readyRead(QSslSocket* clientConnection)
             return;
         }
     } else {
+        // Socket is in SSL mode. Check for a WebSocket upgrade before falling through to
+        // the binary authentication flow — browsers send HTTP GET after the TLS
+        // handshake.
+#ifdef WEBRTC_SUPPORT
+        QByteArray peekData = clientConnection->peek(512);
+        if (peekData.startsWith("GET")) {
+            // Extract the request line to check for the /ping health-check endpoint.
+            // This lets browser clients verify TLS + HTTP connectivity before
+            // attempting a WebSocket upgrade, which is useful for diagnosing
+            // connection issues.
+            QByteArray requestLine = peekData.left(peekData.indexOf('\r'));
+            if (requestLine.contains(" /ping ") || requestLine.endsWith(" /ping")) {
+                cout << "JackTrip HUB SERVER: Responding to /ping health check" << endl;
+                static const char kPingResponse[] =
+                    "HTTP/1.1 200 OK\r\n"
+                    "Content-Type: application/json\r\n"
+                    "Content-Length: 15\r\n"
+                    "Connection: close\r\n"
+                    "\r\n"
+                    "{\"status\":\"OK\"}";
+                clientConnection->write(kPingResponse, sizeof(kPingResponse) - 1);
+                clientConnection->flush();
+                clientConnection->disconnectFromHost();
+                return;
+            } else if (requestLine.contains(" /webrtc ")
+                       || requestLine.endsWith(" /webrtc")) {
+                cout << "JackTrip HUB SERVER: WebRTC connection detected" << endl;
+                disconnect(clientConnection, nullptr, this, nullptr);
+                int workerId = createWebRtcWorker(clientConnection);
+                if (workerId < 0) {
+                    cerr << "JackTrip HUB SERVER: No available slots for WebRTC client"
+                         << endl;
+                    clientConnection->close();
+                    clientConnection->deleteLater();
+                }
+                return;
+            } else {
+                // respond with 404 Not Found
+                static const char kBadRequestResponse[] =
+                    "HTTP/1.1 404 Not Found\r\n"
+                    "Content-Type: application/json\r\n"
+                    "Content-Length: 19\r\n"
+                    "Connection: close\r\n"
+                    "\r\n"
+                    "{\"status\":\"Bad Request\"}";
+                clientConnection->write(kBadRequestResponse,
+                                        sizeof(kBadRequestResponse) - 1);
+                clientConnection->flush();
+                clientConnection->disconnectFromHost();
+                return;
+            }
+        }
+#endif  // WEBRTC_SUPPORT
         // This branch executes when our socket is already in SSL mode and we're expecting
         // to read our authentication data.
         peer_udp_port = checkAuthAndReadPort(clientConnection, clientName);
