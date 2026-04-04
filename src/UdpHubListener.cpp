@@ -211,17 +211,24 @@ void UdpHubListener::start()
         if (!error) {
             QFile keyFile(mKeyFile);
             if (keyFile.open(QIODevice::ReadOnly)) {
-                QSslKey key(&keyFile, QSsl::Rsa);
+                const QByteArray keyPem = keyFile.readAll();
+                // Certbot / Let's Encrypt may issue ECDSA keys; PEM must be matched to
+                // QSsl::Rsa or QSsl::Ec — a wrong algorithm yields a null QSslKey.
+                QSslKey key(keyPem, QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey);
+                if (key.isNull()) {
+                    key = QSslKey(keyPem, QSsl::Ec, QSsl::Pem, QSsl::PrivateKey);
+                }
                 if (!key.isNull()) {
                     mTcpServer.setPrivateKey(key);
                 } else {
-                    error = true;
-                    error_message =
-                        QStringLiteral("Unable to read RSA private key file.");
+                    error         = true;
+                    error_message = QStringLiteral(
+                        "Unable to read private key file (unsupported "
+                        "algorithm or invalid PEM).");
                 }
             } else {
                 error         = true;
-                error_message = QStringLiteral("Could not find RSA private key file.");
+                error_message = QStringLiteral("Could not find private key file.");
             }
         }
 
@@ -233,6 +240,7 @@ void UdpHubListener::start()
             cerr << "JackTrip HUB SERVER: TLS certificate loading failed: "
                  << error_message.toStdString() << endl;
         } else {
+            cout << "JackTrip HUB SERVER: Loaded TLS certificate" << endl;
             mTlsConfigured = true;
         }
     }
@@ -276,7 +284,7 @@ void UdpHubListener::start()
 #endif
 
 #ifdef WEBTRANSPORT_SUPPORT
-    if (!mCertFile.isEmpty() && !mKeyFile.isEmpty()) {
+    if (mTlsConfigured) {
         mHttp3Server = new Http3Server(mCertFile, mKeyFile, mServerPort);
         mHttp3Server->setConnectionCallback(
             [this](HQUIC connection, const QHostAddress& addr, quint16 port) {
