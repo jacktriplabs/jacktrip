@@ -443,7 +443,6 @@ void WebTransportDataProtocol::runSender(int full_packet_size)
 void WebTransportDataProtocol::processReceivedPacket(int8_t* packet, int packet_size,
                                                      int full_packet_size)
 {
-    Q_UNUSED(packet_size)
     Q_UNUSED(full_packet_size)
 
     // Get sequence number
@@ -473,10 +472,20 @@ void WebTransportDataProtocol::processReceivedPacket(int8_t* packet, int packet_
     }
 
     // Extract audio and send to buffer
-    int peer_chans    = mJackTrip->getPeerNumOutgoingChannels(packet);
-    int N             = mJackTrip->getPeerBufferSize(packet);
+    int peer_chans = mJackTrip->getPeerNumOutgoingChannels(packet);
+    int N          = mJackTrip->getPeerBufferSize(packet);
+    int hdr_size   = mJackTrip->getHeaderSizeInBytes();
+
+    // Guard: peer-supplied fields must fit within the received datagram.
+    if (hdr_size + N * peer_chans * mSmplSize > packet_size) {
+        std::cerr
+            << "WebTransportDataProtocol: packet too small for declared audio payload;"
+               " dropping."
+            << std::endl;
+        return;
+    }
+
     int host_buf_size = N * mChans * mSmplSize;
-    int hdr_size      = mJackTrip->getHeaderSizeInBytes();
     int gap_size      = lost * host_buf_size;
 
     // Ensure buffer is large enough (pre-allocated in run(), but check anyway)
@@ -581,6 +590,10 @@ void WebTransportDataProtocol::onDatagramReceived(const uint8_t* data, size_t le
     // Check for control packet
     if (len == static_cast<size_t>(mControlPacketSize)) {
         processControlPacket(reinterpret_cast<const char*>(data), len);
+        return;
+    }
+
+    if (len < sizeof(DefaultHeaderStruct)) {
         return;
     }
 

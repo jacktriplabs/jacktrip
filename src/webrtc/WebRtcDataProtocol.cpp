@@ -183,6 +183,10 @@ void WebRtcDataProtocol::onDataChannelMessage(const std::vector<std::byte>& data
         return;
     }
 
+    if (data.size() < sizeof(DefaultHeaderStruct)) {
+        return;
+    }
+
     // Process the packet directly and write to ring buffer
     // Note: By the time WebRtcDataProtocol is created, JackTripWorker has already
     // received the first packet and configured all peer settings, so we can
@@ -429,7 +433,6 @@ void WebRtcDataProtocol::runSender(int full_packet_size)
 void WebRtcDataProtocol::processReceivedPacket(int8_t* packet, int packet_size,
                                                int full_packet_size)
 {
-    Q_UNUSED(packet_size)
     Q_UNUSED(full_packet_size)
 
     // Get sequence number
@@ -452,10 +455,19 @@ void WebRtcDataProtocol::processReceivedPacket(int8_t* packet, int packet_size,
     mLastSeqNum   = seq_num;
 
     // Extract audio and send to buffer
-    int peer_chans    = mJackTrip->getPeerNumOutgoingChannels(packet);
-    int N             = mJackTrip->getPeerBufferSize(packet);
+    int peer_chans = mJackTrip->getPeerNumOutgoingChannels(packet);
+    int N          = mJackTrip->getPeerBufferSize(packet);
+    int hdr_size   = mJackTrip->getHeaderSizeInBytes();
+
+    // Guard: peer-supplied fields must fit within the received datagram.
+    if (hdr_size + N * peer_chans * mSmplSize > packet_size) {
+        std::cerr << "WebRtcDataProtocol: packet too small for declared audio payload;"
+                     " dropping."
+                  << std::endl;
+        return;
+    }
+
     int host_buf_size = N * mChans * mSmplSize;
-    int hdr_size      = mJackTrip->getHeaderSizeInBytes();
     int gap_size      = lost * host_buf_size;
 
     if (static_cast<int>(mBuffer.size()) < host_buf_size) {

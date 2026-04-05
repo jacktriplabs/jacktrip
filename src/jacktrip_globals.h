@@ -80,10 +80,14 @@ constexpr int gDefaultOutputQueueLength        = 4;
 constexpr uint32_t gDefaultSampleRate          = 48000;
 constexpr int gDefaultDeviceID                 = -1;
 constexpr uint32_t gDefaultBufferSizeInSamples = 128;
-constexpr const char* gDefaultLocalAddress     = "";
-constexpr int gDefaultRedundancy               = 1;
-constexpr int gTimeOutMultiThreadedServer      = 10000;  // seconds
-constexpr int gUdpWaitTimeout                  = 512;    // milliseconds
+constexpr uint16_t gMaxBufferSizeInSamples =
+    4096;  ///< Sane upper bound for peer-supplied buffer size
+constexpr uint8_t gMaxAudioChannels =
+    128;  ///< Sane upper bound for peer-supplied channel count
+constexpr const char* gDefaultLocalAddress = "";
+constexpr int gDefaultRedundancy           = 1;
+constexpr int gTimeOutMultiThreadedServer  = 10000;  // seconds
+constexpr int gUdpWaitTimeout              = 512;    // milliseconds
 //@}
 
 //*******************************************************************************
@@ -116,6 +120,7 @@ extern int gVerboseFlag;  ///< Verbose mode flag declaration
 constexpr int gJackBitResolution = 32;  ///< Audio Bit Resolution of the Jack Server
 constexpr const char* gJackDefaultClientName = "JackTrip";
 constexpr int gMaxRemoteNameLength           = 64;
+constexpr int gMaxCredentialLength           = 255;  ///< Max username or password length
 //@}
 
 //*******************************************************************************

@@ -489,6 +489,10 @@ class JackTrip : public QObject
 #endif
     }
     virtual bool checkPeerSettings(int8_t* full_packet);
+    bool validatePeerHeader(const int8_t* full_packet, int received_bytes) const
+    {
+        return mPacketHeader->validatePeerHeader(full_packet, received_bytes);
+    }
     void increaseSequenceNumber() { mPacketHeader->increaseSequenceNumber(); }
     int getSequenceNumber() const { return mPacketHeader->getSequenceNumber(); }
 

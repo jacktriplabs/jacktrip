@@ -129,6 +129,10 @@ class PacketHeader : public QObject
     /// \brief Check that the settings in the supplied packet header match the server's
     /// settings \return True if settings match, false otherwise
     virtual bool checkPeerSettings(int8_t* full_packet) = 0;
+    /// \brief Validate peer-supplied header fields against sane bounds and the actual
+    /// received packet length. Returns false (and logs) on any violation.
+    virtual bool validatePeerHeader(const int8_t* full_packet,
+                                    int received_bytes) const = 0;
 
     virtual uint64_t getPeerTimeStamp(int8_t* full_packet) const          = 0;
     virtual uint16_t getPeerSequenceNumber(int8_t* full_packet) const     = 0;
@@ -187,6 +191,8 @@ class DefaultHeader : public PacketHeader
     virtual void fillHeaderCommonFromAudio() override;
     virtual void parseHeader() override {}
     virtual bool checkPeerSettings(int8_t* full_packet) override;
+    virtual bool validatePeerHeader(const int8_t* full_packet,
+                                    int received_bytes) const override;
     virtual void increaseSequenceNumber() override { mHeader.SeqNumber++; }
     virtual uint16_t getSequenceNumber() const override { return mHeader.SeqNumber; }
     virtual int getHeaderSizeInBytes() const override { return sizeof(mHeader); }
@@ -232,6 +238,11 @@ class JamLinkHeader : public PacketHeader
     virtual void fillHeaderCommonFromAudio() override;
     virtual void parseHeader() override {}
     virtual bool checkPeerSettings(int8_t* /*full_packet*/) override { return true; }
+    virtual bool validatePeerHeader(const int8_t* /*full_packet*/,
+                                    int /*received_bytes*/) const override
+    {
+        return true;
+    }
 
     virtual uint64_t getPeerTimeStamp(int8_t* /*full_packet*/) const override
     {
@@ -290,6 +301,11 @@ class EmptyHeader : public PacketHeader
     virtual void fillHeaderCommonFromAudio() override {}
     virtual void parseHeader() override {}
     virtual bool checkPeerSettings(int8_t* /*full_packet*/) override { return true; }
+    virtual bool validatePeerHeader(const int8_t* /*full_packet*/,
+                                    int /*received_bytes*/) const override
+    {
+        return true;
+    }
     virtual void increaseSequenceNumber() override {}
     virtual int getHeaderSizeInBytes() const override { return 0; }
 
