@@ -663,6 +663,14 @@ void UdpDataProtocol::run()
         full_redundant_packet      = new int8_t[full_redundant_packet_size];
         full_redundant_packet_size = receivePacket(
             reinterpret_cast<char*>(full_redundant_packet), full_redundant_packet_size);
+        // Validate peer-supplied header fields before trusting any derived sizes.
+        if (!mJackTrip->validatePeerHeader(full_redundant_packet, full_redundant_packet_size)) {
+            std::cerr << "ERROR: Peer header validation failed; dropping connection." << endl;
+            delete[] full_redundant_packet;
+            full_redundant_packet = nullptr;
+            return;
+        }
+
         // Check that peer has the same audio settings
         if (gVerboseFlag)
             std::cout << std::endl
@@ -680,6 +688,15 @@ void UdpDataProtocol::run()
         full_packet_size = mJackTrip->getHeaderSizeInBytes()
                            + mJackTrip->getPeerBufferSize(full_redundant_packet)
                                  * peer_chans * mSmplSize;
+
+        if (full_packet_size <= 0 || full_packet_size > full_redundant_packet_size) {
+            std::cerr << "ERROR: Computed full_packet_size (" << full_packet_size
+                      << ") out of range for received datagram (" << full_redundant_packet_size
+                      << "); dropping connection." << endl;
+            delete[] full_redundant_packet;
+            full_redundant_packet = nullptr;
+            return;
+        }
         /*
         cout << "peer sizes: " << mJackTrip->getHeaderSizeInBytes()
              << " + " << mJackTrip->getPeerBufferSize(full_redundant_packet)
@@ -957,8 +974,23 @@ void UdpDataProtocol::receivePacketRedundancy(
 
     int peer_chans    = mJackTrip->getPeerNumOutgoingChannels(full_redundant_packet);
     int N             = mJackTrip->getPeerBufferSize(full_redundant_packet);
-    int host_buf_size = N * mChans * mSmplSize;
     int hdr_size      = mJackTrip->getHeaderSizeInBytes();
+
+    // Guard: the stride computed from peer-supplied fields must fit within the datagram.
+    int stride_bytes = hdr_size + N * peer_chans * mSmplSize;
+    if (stride_bytes <= hdr_size || stride_bytes > full_redundant_packet_size) {
+        std::cerr << "ERROR: receivePacketRedundancy stride (" << stride_bytes
+                  << ") out of range; dropping packet." << endl;
+        return;
+    }
+    // Clamp redundancy loop so no index overruns the datagram.
+    int max_redun_index =
+        (full_redundant_packet_size - stride_bytes) / full_packet_size;
+    if (redun_last_index > max_redun_index) {
+        redun_last_index = max_redun_index;
+    }
+
+    int host_buf_size = N * mChans * mSmplSize;
     int gap_size      = mInitialState ? 0 : (lost - redun_last_index) * host_buf_size;
 
     last_seq_num = newer_seq_num;  // Save last read packet

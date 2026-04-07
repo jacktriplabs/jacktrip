@@ -276,6 +276,14 @@ void JackTripWorker::receivedFirstPacketUDP()
     // Set our jacktrip parameters from the received header data.
     quint16 port;
     int packet_size = mUdpSockTemp.pendingDatagramSize();
+    if (packet_size < static_cast<int>(sizeof(DefaultHeaderStruct))) {
+        cerr << "JackTripWorker: first UDP packet too small (" << packet_size
+             << " bytes); ignoring." << endl;
+        mUdpSockTemp.close();
+        mSpawning = false;
+        mUdpHubListener->releaseThread(mID);
+        return;
+    }
     QScopedArrayPointer<int8_t> full_packet(new int8_t[packet_size]);
     mUdpSockTemp.readDatagram(reinterpret_cast<char*>(full_packet.get()), packet_size,
                               nullptr, &port);
@@ -308,6 +316,37 @@ void JackTripWorker::processPeerSettings(int8_t* full_packet)
              << "\n"
              << "JackTripWorker: PeerNumOutgoingChannels = " << PeerNumOutgoingChannels
              << "\n";
+    }
+
+    // Validate peer buffer size before using it for any arithmetic.
+    if (PeerBufferSize == 0 || PeerBufferSize > gMaxBufferSizeInSamples) {
+        cerr << "JackTripWorker: peer BufferSize out of range (" << PeerBufferSize
+             << "); shutting down." << endl;
+        mSpawning = false;
+        mUdpHubListener->releaseThread(mID);
+        return;
+    }
+
+    // Clamp channel counts to sane bounds before calling set methods.
+    if (PeerNumIncomingChannels < 1
+        || PeerNumIncomingChannels > static_cast<int>(gMaxAudioChannels)) {
+        cerr << "JackTripWorker: peer NumIncomingChannels out of range ("
+             << PeerNumIncomingChannels << "); shutting down." << endl;
+        mSpawning = false;
+        mUdpHubListener->releaseThread(mID);
+        return;
+    }
+    // PeerNumOutgoingChannels: 0 == NORMAL sentinel, 0xff == no-input sentinel; others
+    // clamped.
+    if (PeerNumOutgoingChannels != JackTrip::NORMAL
+        && PeerNumOutgoingChannels
+               != static_cast<int>((std::numeric_limits<uint8_t>::max)())
+        && PeerNumOutgoingChannels > static_cast<int>(gMaxAudioChannels)) {
+        cerr << "JackTripWorker: peer NumOutgoingChannels out of range ("
+             << PeerNumOutgoingChannels << "); shutting down." << endl;
+        mSpawning = false;
+        mUdpHubListener->releaseThread(mID);
+        return;
     }
 
     // The header field for NumOutgoingChannels was used for the ConnectionMode.

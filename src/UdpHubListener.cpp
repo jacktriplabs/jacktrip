@@ -590,7 +590,7 @@ int UdpHubListener::readClientUdpPort(QSslSocket* clientConnection, QString& cli
     if (clientConnection->bytesAvailable() == gMaxRemoteNameLength) {
         char name_buf[gMaxRemoteNameLength];
         clientConnection->read(name_buf, gMaxRemoteNameLength);
-        clientName = QString::fromUtf8((const char*)name_buf);
+        clientName = QString::fromUtf8((const char*)name_buf, gMaxRemoteNameLength);
     }
 
     return udp_port;
@@ -625,8 +625,16 @@ int UdpHubListener::checkAuthAndReadPort(QSslSocket* clientConnection,
         qFromLittleEndian<qint32>(buf + gMaxRemoteNameLength + (2 * sizeof(qint32)));
     delete[] buf;
 
-    // Check if we have enough data.
-    if (clientConnection->bytesAvailable() < size + usernameLength + passwordLength + 2) {
+    // Reject negative or oversized lengths before doing any arithmetic with them.
+    if (usernameLength < 0 || usernameLength > gMaxCredentialLength || passwordLength < 0
+        || passwordLength > gMaxCredentialLength) {
+        return Auth::WRONGCREDS;
+    }
+
+    // Widen to qint64 before summing to avoid signed-integer overflow with
+    // attacker-supplied lengths.
+    if (clientConnection->bytesAvailable()
+        < static_cast<qint64>(size) + usernameLength + passwordLength + 2) {
         return 0;
     }
 
@@ -640,24 +648,23 @@ int UdpHubListener::checkAuthAndReadPort(QSslSocket* clientConnection,
     // Then our jack client name.
     char name_buf[gMaxRemoteNameLength];
     clientConnection->read(name_buf, gMaxRemoteNameLength);
-    clientName = QString::fromUtf8((const char*)name_buf);
+    clientName = QString::fromUtf8((const char*)name_buf, gMaxRemoteNameLength);
 
     // We can discard our username and password length since we already have them.
     clientConnection->read(port_buf, size);
     clientConnection->read(port_buf, size);
     delete[] port_buf;
 
-    // And then get our username and password.
+    // And then get our username and password. Read exactly usernameLength/passwordLength
+    // bytes (the +1 null terminator byte is consumed but not used as a length hint).
     QString username, password;
-    char* username_buf = new char[usernameLength + 1];
-    clientConnection->read(username_buf, usernameLength + 1);
-    username = QString::fromUtf8((const char*)username_buf);
-    delete[] username_buf;
+    QByteArray username_buf = clientConnection->read(usernameLength);
+    clientConnection->read(1);  // consume null terminator
+    username = QString::fromUtf8(username_buf.constData(), username_buf.size());
 
-    char* password_buf = new char[passwordLength + 1];
-    clientConnection->read(password_buf, passwordLength + 1);
-    password = QString::fromUtf8((const char*)password_buf);
-    delete[] password_buf;
+    QByteArray password_buf = clientConnection->read(passwordLength);
+    clientConnection->read(1);  // consume null terminator
+    password = QString::fromUtf8(password_buf.constData(), password_buf.size());
 
     // Check if our credentials are valid, and return either an error code or our port.
     Auth::AuthResponseT response = mAuth->checkCredentials(username, password);

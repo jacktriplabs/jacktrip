@@ -86,6 +86,7 @@
 
 #include "JitterBuffer.h"  // for broadcast
 
+using std::cerr;
 using std::cout;
 using std::endl;
 using std::setw;
@@ -336,6 +337,14 @@ void Regulator::setFPPratio(int len)
 {
     // only for first peer packet
     if (mInitialized) {
+        return;
+    }
+
+    const int kMaxPeerBytes =
+        static_cast<int>(gMaxBufferSizeInSamples) * gMaxAudioChannels * 4;
+    if (len <= 0 || len > kMaxPeerBytes) {
+        cerr << "Regulator::setFPPratio: peer packet len out of range (" << len
+             << "); ignoring." << endl;
         return;
     }
 

@@ -123,6 +123,9 @@ bool JitterBuffer::insertSlotNonBlocking(const int8_t* ptrToSlot, int len, int l
     if (0 == len) {
         len = mSlotSize;
     }
+    if (len > mTotalSize) {
+        return false;
+    }
     QMutexLocker locker(&mMutex);
     mInSlotSize = len;
     if (!mActive) {
