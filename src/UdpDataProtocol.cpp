@@ -375,7 +375,11 @@ bool UdpDataProtocol::setSocketQos(socket_type& sock_fd)
     // See RFC2474 https://datatracker.ietf.org/doc/html/rfc2474
     // See also
     // https://www.slashroot.in/understanding-differentiated-services-tos-field-internet-protocol-header
-    const char tos = 0xE0;  // 11100000 (56 << 2)
+    // Network Control (CS7)
+    // const char tos = 0xE0;  // 11100000 (56 << 2)
+    // but let's use expedited forwarding "EF"
+    // Interactive Audio (EF)
+    const char tos = 0xB8;  // 10111000 (46 << 2)
     int result;
     if (mIPv6) {
         result = ::setsockopt(sock_fd, IPPROTO_IPV6, IPV6_TCLASS, &tos, sizeof(tos));
