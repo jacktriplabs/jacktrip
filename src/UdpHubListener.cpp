@@ -413,7 +413,39 @@ void UdpHubListener::readyRead(QSslSocket* clientConnection)
         // handshake.
 #ifdef WEBRTC_SUPPORT
         QByteArray peekData = clientConnection->peek(512);
-        if (peekData.startsWith("GET")) {
+        if (peekData.startsWith("GET") || peekData.startsWith("OPTIONS")) {
+            // Extract the Origin header (case-insensitive) so we can echo it back in
+            // Access-Control-Allow-Origin, enabling cross-origin browser clients.
+            QByteArray origin;
+            int originIdx = peekData.toLower().indexOf("\r\norigin: ");
+            if (originIdx != -1) {
+                int valueStart = originIdx + 10;  // len("\r\norigin: ") == 10
+                int valueEnd   = peekData.indexOf('\r', valueStart);
+                if (valueEnd != -1) {
+                    origin = peekData.mid(valueStart, valueEnd - valueStart).trimmed();
+                }
+            }
+
+            // Build CORS response headers only when the request carries an Origin.
+            QByteArray corsHeaders;
+            if (!origin.isEmpty()) {
+                corsHeaders = "Access-Control-Allow-Origin: " + origin + "\r\n"
+                              "Access-Control-Allow-Methods: GET, OPTIONS\r\n"
+                              "Access-Control-Allow-Headers: Content-Type\r\n";
+            }
+
+            // Respond to CORS preflight (OPTIONS) immediately.
+            if (peekData.startsWith("OPTIONS")) {
+                QByteArray response =
+                    "HTTP/1.1 204 No Content\r\n"
+                    "Connection: close\r\n"
+                    + corsHeaders + "\r\n";
+                clientConnection->write(response);
+                clientConnection->flush();
+                clientConnection->disconnectFromHost();
+                return;
+            }
+
             // Extract the request line to check for the /ping health-check endpoint.
             // This lets browser clients verify TLS + HTTP connectivity before
             // attempting a WebSocket upgrade, which is useful for diagnosing
@@ -421,14 +453,14 @@ void UdpHubListener::readyRead(QSslSocket* clientConnection)
             QByteArray requestLine = peekData.left(peekData.indexOf('\r'));
             if (requestLine.contains(" /ping ") || requestLine.endsWith(" /ping")) {
                 cout << "JackTrip HUB SERVER: Responding to /ping health check" << endl;
-                static const char kPingResponse[] =
+                QByteArray body = "{\"status\":\"OK\"}";
+                QByteArray response =
                     "HTTP/1.1 200 OK\r\n"
                     "Content-Type: application/json\r\n"
-                    "Content-Length: 15\r\n"
-                    "Connection: close\r\n"
-                    "\r\n"
-                    "{\"status\":\"OK\"}";
-                clientConnection->write(kPingResponse, sizeof(kPingResponse) - 1);
+                    "Content-Length: "
+                    + QByteArray::number(body.size()) + "\r\n" + "Connection: close\r\n"
+                    + corsHeaders + "\r\n" + body;
+                clientConnection->write(response);
                 clientConnection->flush();
                 clientConnection->disconnectFromHost();
                 return;
@@ -445,16 +477,14 @@ void UdpHubListener::readyRead(QSslSocket* clientConnection)
                 }
                 return;
             } else {
-                // respond with 404 Not Found
-                static const char kBadRequestResponse[] =
+                QByteArray body = "{\"status\":\"Not Found\"}";
+                QByteArray response =
                     "HTTP/1.1 404 Not Found\r\n"
                     "Content-Type: application/json\r\n"
-                    "Content-Length: 19\r\n"
-                    "Connection: close\r\n"
-                    "\r\n"
-                    "{\"status\":\"Bad Request\"}";
-                clientConnection->write(kBadRequestResponse,
-                                        sizeof(kBadRequestResponse) - 1);
+                    "Content-Length: "
+                    + QByteArray::number(body.size()) + "\r\n" + "Connection: close\r\n"
+                    + corsHeaders + "\r\n" + body;
+                clientConnection->write(response);
                 clientConnection->flush();
                 clientConnection->disconnectFromHost();
                 return;
