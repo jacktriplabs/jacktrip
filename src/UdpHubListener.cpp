@@ -961,9 +961,16 @@ int UdpHubListener::createWebRtcWorker(QSslSocket* signalingSocket)
     connect(worker, &JackTripWorker::signalRemoveThread, this,
             &UdpHubListener::handleWorkerRemoval, Qt::QueuedConnection);
 
+    // Derive the ICE UDP port from this worker's pre-assigned JackTrip port.
+    // In WebRTC mode JackTrip never binds that port itself (the data travels over
+    // the WebRTC data channel), so libjuice is free to use it.  This keeps all
+    // WebRTC traffic on the same port range that firewall rules already allow.
+    uint16_t workerPort = static_cast<uint16_t>(mBasePort + id);
+
     // Have the worker create its own WebRTC peer connection
     // The worker will handle connection lifecycle and start when ready
-    worker->createWebRtcPeerConnection(signalingSocket, mIceServers);
+    worker->createWebRtcPeerConnection(signalingSocket, mIceServers, workerPort,
+                                       workerPort);
 
     // Note: We don't call setJackTrip yet because we don't have the data channel.
     // The worker will be started when the data channel opens (handled by worker).

@@ -153,8 +153,12 @@ class JackTripWorker : public QObject
     /// \param signalingSocket The SSL socket for WebSocket signaling (ownership
     /// transferred to connection)
     /// \param iceServers List of STUN/TURN server URLs
+    /// \param portRangeBegin First UDP port for ICE candidates (0 = system default)
+    /// \param portRangeEnd Last UDP port for ICE candidates (0 = system default)
     void createWebRtcPeerConnection(QSslSocket* signalingSocket,
-                                    const QStringList& iceServers);
+                                    const QStringList& iceServers,
+                                    uint16_t portRangeBegin = 0,
+                                    uint16_t portRangeEnd   = 0);
 
     /// \brief Called when first packet is received on WebRTC data channel
     /// Similar to receivedDataUDP() for UDP mode

@@ -54,10 +54,14 @@ using std::cout;
 using std::endl;
 
 //*******************************************************************************
-WebRtcPeerConnection::WebRtcPeerConnection(const QStringList& iceServers, QObject* parent)
+WebRtcPeerConnection::WebRtcPeerConnection(const QStringList& iceServers,
+                                           uint16_t portRangeBegin, uint16_t portRangeEnd,
+                                           QObject* parent)
     : QObject(parent)
     , mSignalingConnection(nullptr)
     , mIceServers(iceServers)
+    , mPortRangeBegin(portRangeBegin)
+    , mPortRangeEnd(portRangeEnd)
     , mState(STATE_NEW)
     , mIsOfferer(false)
 {
@@ -66,10 +70,14 @@ WebRtcPeerConnection::WebRtcPeerConnection(const QStringList& iceServers, QObjec
 
 //*******************************************************************************
 WebRtcPeerConnection::WebRtcPeerConnection(QSslSocket* signalingSocket,
-                                           const QStringList& iceServers, QObject* parent)
+                                           const QStringList& iceServers,
+                                           uint16_t portRangeBegin, uint16_t portRangeEnd,
+                                           QObject* parent)
     : QObject(parent)
     , mSignalingConnection(nullptr)
     , mIceServers(iceServers)
+    , mPortRangeBegin(portRangeBegin)
+    , mPortRangeEnd(portRangeEnd)
     , mState(STATE_NEW)
     , mIsOfferer(false)
 {
@@ -145,6 +153,13 @@ void WebRtcPeerConnection::initPeerConnection()
             for (const QString& server : mIceServers) {
                 config.iceServers.emplace_back(server.toStdString());
             }
+        }
+
+        // Restrict ICE UDP port range if configured (useful when only specific
+        // ports are allowed through firewall rules)
+        if (mPortRangeBegin != 0 && mPortRangeEnd != 0) {
+            config.portRangeBegin = mPortRangeBegin;
+            config.portRangeEnd   = mPortRangeEnd;
         }
 
         // Create the peer connection
