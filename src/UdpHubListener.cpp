@@ -450,8 +450,11 @@ void UdpHubListener::readyRead(QSslSocket* clientConnection)
             // This lets browser clients verify TLS + HTTP connectivity before
             // attempting a WebSocket upgrade, which is useful for diagnosing
             // connection issues.
-            QByteArray requestLine = peekData.left(peekData.indexOf('\r'));
-            if (requestLine.contains(" /ping ") || requestLine.endsWith(" /ping")) {
+            QByteArray requestLine         = peekData.left(peekData.indexOf('\r'));
+            QList<QByteArray> requestParts = requestLine.split(' ');
+            QByteArray requestPath =
+                requestParts.size() > 1 ? requestParts[1] : QByteArray();
+            if (requestPath == "/ping") {
                 cout << "JackTrip HUB SERVER: Responding to /ping health check" << endl;
                 QByteArray body = "{\"status\":\"OK\"}";
                 QByteArray response =
@@ -464,8 +467,7 @@ void UdpHubListener::readyRead(QSslSocket* clientConnection)
                 clientConnection->flush();
                 clientConnection->disconnectFromHost();
                 return;
-            } else if (requestLine.contains(" /webrtc ")
-                       || requestLine.endsWith(" /webrtc")) {
+            } else if (requestPath == "/webrtc" || requestPath.startsWith("/webrtc?")) {
                 cout << "JackTrip HUB SERVER: WebRTC connection detected" << endl;
                 disconnect(clientConnection, nullptr, this, nullptr);
                 int workerId = createWebRtcWorker(clientConnection);
