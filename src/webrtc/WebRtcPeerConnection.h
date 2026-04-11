@@ -84,20 +84,26 @@ class WebRtcPeerConnection : public QObject
 
     /** \brief Constructor
      * \param iceServers List of STUN/TURN server URLs
+     * \param portRangeBegin First UDP port for ICE candidates (0 = system default)
+     * \param portRangeEnd Last UDP port for ICE candidates (0 = system default)
      * \param parent QObject parent
      */
     explicit WebRtcPeerConnection(const QStringList& iceServers = QStringList(),
-                                  QObject* parent               = nullptr);
+                                  uint16_t portRangeBegin = 0, uint16_t portRangeEnd = 0,
+                                  QObject* parent = nullptr);
 
     /** \brief Constructor with signaling socket
      * \param signalingSocket The SSL socket for WebSocket signaling (ownership
      * transferred)
      * \param iceServers List of STUN/TURN server URLs
+     * \param portRangeBegin First UDP port for ICE candidates (0 = system default)
+     * \param portRangeEnd Last UDP port for ICE candidates (0 = system default)
      * \param parent QObject parent
      */
     explicit WebRtcPeerConnection(QSslSocket* signalingSocket,
                                   const QStringList& iceServers = QStringList(),
-                                  QObject* parent               = nullptr);
+                                  uint16_t portRangeBegin = 0, uint16_t portRangeEnd = 0,
+                                  QObject* parent = nullptr);
 
     /** \brief Destructor
      */
@@ -249,6 +255,8 @@ class WebRtcPeerConnection : public QObject
 
     // Configuration
     QStringList mIceServers;
+    uint16_t mPortRangeBegin = 0;
+    uint16_t mPortRangeEnd   = 0;
     std::unique_ptr<rtc::Configuration> mConfig;
 
     // libdatachannel objects

@@ -473,7 +473,9 @@ void JackTripWorker::receivedFirstPacketWebRtc(const std::vector<std::byte>& pac
 
 //*******************************************************************************
 void JackTripWorker::createWebRtcPeerConnection(QSslSocket* signalingSocket,
-                                                const QStringList& iceServers)
+                                                const QStringList& iceServers,
+                                                uint16_t portRangeBegin,
+                                                uint16_t portRangeEnd)
 {
     // Clean up old connection if exists
     if (mWebRtcPeerConnection) {
@@ -484,7 +486,8 @@ void JackTripWorker::createWebRtcPeerConnection(QSslSocket* signalingSocket,
 
     // Create the WebRTC peer connection with signaling socket
     // The peer connection will manage the signaling internally
-    mWebRtcPeerConnection = new WebRtcPeerConnection(signalingSocket, iceServers, this);
+    mWebRtcPeerConnection = new WebRtcPeerConnection(signalingSocket, iceServers,
+                                                     portRangeBegin, portRangeEnd, this);
 
     // Connect signals from peer connection to our slots
     connect(mWebRtcPeerConnection, &WebRtcPeerConnection::dataChannelOpen, this,
