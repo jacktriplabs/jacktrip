@@ -1,3 +1,12 @@
+- Version: "3.0.0-beta2"
+  Date: 2026-04-11
+  Description:
+  - (fixed) Support the use of ECDSA private TLS keys
+  - (fixed) Require TLS for WebRTC signaling connections
+  - (fixed) Add CORS headers for WebRTC connections
+  - (fixed) Use assigned UDP ports for WebRTC ICE candidates
+  - (fixed) Use DSCP value of 46 instead of 56 for UDP packets
+  - (fixed) Added guards to protect against buffer overflows
 - Version: "3.0.0-beta1"
   Date: 2026-03-20
   Description:
