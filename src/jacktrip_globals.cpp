@@ -169,7 +169,7 @@ void setRealtimeProcessPriority()
             priority = "idle";
             break;
         case NORMAL_PRIORITY_CLASS:
-            priority = "high";
+            priority = "normal";
             break;
         case REALTIME_PRIORITY_CLASS:
             priority = "realtime";
