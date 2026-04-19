@@ -655,8 +655,7 @@ class JackTrip : public QObject
      */
     void slotUdpWaitingTooLongClientGoneProbably(int wait_msec)
     {
-        int wait_time = 10000;  // msec
-        if (!(wait_msec % wait_time)) {
+        if (!(wait_msec % gClientGoneTimeoutMs)) {
             std::cerr << "UDP WAITED MORE THAN 10 seconds." << std::endl;
             if (mStopOnTimeout) {
                 stop(QStringLiteral("No network data received for 10 seconds"));

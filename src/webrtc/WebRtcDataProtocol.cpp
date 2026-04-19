@@ -522,4 +522,12 @@ void WebRtcDataProtocol::printWaitedTooLong(int wait_msec)
                  << "ms) for data..." << endl;
         }
     }
+    // After gClientGoneTimeoutMs with no received packets the client is probably gone.
+    // Close the data channel so cleanup happens promptly.
+    // Mirrors slotUdpWaitingTooLongClientGoneProbably.
+    if (wait_msec >= gClientGoneTimeoutMs && mDataChannel && mDataChannel->isOpen()) {
+        cerr << "WebRTC: No packets for " << wait_msec
+             << "ms — closing data channel (client probably gone)" << endl;
+        mDataChannel->close();
+    }
 }
