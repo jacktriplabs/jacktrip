@@ -64,6 +64,7 @@ WebRtcPeerConnection::WebRtcPeerConnection(const QStringList& iceServers,
     , mPortRangeEnd(portRangeEnd)
     , mState(STATE_NEW)
     , mIsOfferer(false)
+    , mRemoteDescriptionSet(false)
 {
     initPeerConnection();
 }
@@ -80,6 +81,7 @@ WebRtcPeerConnection::WebRtcPeerConnection(QSslSocket* signalingSocket,
     , mPortRangeEnd(portRangeEnd)
     , mState(STATE_NEW)
     , mIsOfferer(false)
+    , mRemoteDescriptionSet(false)
 {
     initPeerConnection();
 
@@ -308,6 +310,11 @@ bool WebRtcPeerConnection::setRemoteOffer(const QString& sdp)
 
         rtc::Description description(sdp.toStdString(), rtc::Description::Type::Offer);
         mPeerConnection->setRemoteDescription(description);
+        mRemoteDescriptionSet = true;
+
+        // Flush any candidates that arrived before the offer (trickle ICE buffering).
+        // Some clients (e.g. Safari) send ICE candidates before the SDP offer.
+        flushPendingCandidates();
 
         return true;
 
@@ -332,6 +339,22 @@ bool WebRtcPeerConnection::addRemoteCandidate(const QString& candidate,
         return false;
     }
 
+    // Queue the candidate if setRemoteDescription hasn't been called yet.
+    // Safari (and some other implementations) send ICE candidates before the
+    // SDP offer via trickle ICE, so we must buffer them and apply them once
+    // the remote description is set.
+    if (!mRemoteDescriptionSet) {
+        mPendingCandidates.append(qMakePair(candidate, sdpMid));
+        return true;
+    }
+
+    return applyRemoteCandidate(candidate, sdpMid);
+}
+
+//*******************************************************************************
+bool WebRtcPeerConnection::applyRemoteCandidate(const QString& candidate,
+                                                const QString& sdpMid)
+{
     try {
         rtc::Candidate cand(candidate.toStdString(), sdpMid.toStdString());
         mPeerConnection->addRemoteCandidate(cand);
@@ -341,6 +364,15 @@ bool WebRtcPeerConnection::addRemoteCandidate(const QString& candidate,
         cerr << "Failed to add remote candidate: " << e.what() << endl;
         return false;
     }
+}
+
+//*******************************************************************************
+void WebRtcPeerConnection::flushPendingCandidates()
+{
+    for (const auto& pending : mPendingCandidates) {
+        applyRemoteCandidate(pending.first, pending.second);
+    }
+    mPendingCandidates.clear();
 }
 
 //*******************************************************************************

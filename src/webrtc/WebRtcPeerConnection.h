@@ -38,7 +38,9 @@
 #ifndef __WEBRTCPEERCONNECTION_H__
 #define __WEBRTCPEERCONNECTION_H__
 
+#include <QList>
 #include <QObject>
+#include <QPair>
 #include <QString>
 #include <QStringList>
 #include <memory>
@@ -247,6 +249,12 @@ class WebRtcPeerConnection : public QObject
     // Create data channel with appropriate settings for audio
     std::shared_ptr<rtc::DataChannel> createAudioDataChannel(const QString& label);
 
+    // Apply a single remote candidate (requires remote description to be set)
+    bool applyRemoteCandidate(const QString& candidate, const QString& sdpMid);
+
+    // Flush candidates that were queued before the remote description was set
+    void flushPendingCandidates();
+
     // State management
     void setState(ConnectionState state);
 
@@ -267,7 +275,11 @@ class WebRtcPeerConnection : public QObject
     ConnectionState mState;
     QString mLocalDescription;
     QString mPeerAddress;
-    bool mIsOfferer;  // true if we created the offer
+    bool mIsOfferer;             // true if we created the offer
+    bool mRemoteDescriptionSet;  // true after setRemoteDescription has been called
+
+    // Candidates received before setRemoteDescription was called (trickle ICE buffering)
+    QList<QPair<QString, QString>> mPendingCandidates;
 };
 
 #endif  // __WEBRTCPEERCONNECTION_H__

@@ -88,6 +88,8 @@ constexpr const char* gDefaultLocalAddress = "";
 constexpr int gDefaultRedundancy           = 1;
 constexpr int gTimeOutMultiThreadedServer  = 10000;  // seconds
 constexpr int gUdpWaitTimeout              = 512;    // milliseconds
+constexpr int gClientGoneTimeoutMs =
+    10000;  ///< Close session after this many ms with no received packets
 //@}
 
 //*******************************************************************************

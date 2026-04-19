@@ -92,6 +92,15 @@ WebTransportDataProtocol::WebTransportDataProtocol(JackTrip* jacktrip,
         // Connect to session closed signal (non-audio path, Qt signal is fine)
         connect(mSession, &WebTransportSession::sessionClosed, this,
                 &WebTransportDataProtocol::onSessionClosed, Qt::QueuedConnection);
+
+        // Also stop loops when the session fails (transport-initiated shutdown sets
+        // STATE_FAILED, which prevents SHUTDOWN_COMPLETE from emitting sessionClosed)
+        connect(
+            mSession, &WebTransportSession::sessionFailed, this,
+            [this](const QString&) {
+                this->onSessionClosed();
+            },
+            Qt::QueuedConnection);
     }
 
     // Connect waiting too long signal
@@ -399,6 +408,14 @@ void WebTransportDataProtocol::runReceiver(int full_packet_size)
             emit signalWaitingTooLong(timeSinceLastPacket);
         }
     }
+
+    // If the loop exited because mStopped was set (e.g., exit control packet) but the
+    // session is still open, close it explicitly. This fires sessionClosed on both the
+    // RECEIVER and SENDER instances, stopping the sender and triggering full cleanup.
+    // Mirrors the printWaitedTooLong path for idle timeout.
+    if (mStopped && mSession && mSession->isConnected()) {
+        mSession->close();
+    }
 }
 
 //*******************************************************************************
@@ -520,9 +537,13 @@ void WebTransportDataProtocol::processReceivedPacket(int8_t* packet, int packet_
 //*******************************************************************************
 void WebTransportDataProtocol::processControlPacket(const char* buf, size_t size)
 {
+    if (size != static_cast<size_t>(mControlPacketSize)) {
+        return;
+    }
+
     // Check for exit signal (all 0xFF)
     bool isExit = true;
-    for (size_t i = 0; i < size && i < 8; i++) {
+    for (size_t i = 0; i < size; i++) {
         if (static_cast<uint8_t>(buf[i]) != 0xFF) {
             isExit = false;
             break;
@@ -565,6 +586,15 @@ void WebTransportDataProtocol::printWaitedTooLong(int wait_msec)
         cerr << "WebTransportDataProtocol: Waited " << wait_msec << " ms for packet"
              << endl;
     }
+
+    // After 10 seconds of no received packets the client is probably gone.
+    // Actively close the session so cleanup happens promptly rather than waiting
+    // for the QUIC idle timeout (~30s). Mirrors slotUdpWaitingTooLongClientGoneProbably.
+    if (wait_msec >= gClientGoneTimeoutMs && mSession && mSession->isConnected()) {
+        cerr << "WebTransportDataProtocol: No packets for " << wait_msec
+             << "ms — closing session (client probably gone)" << endl;
+        mSession->close();
+    }
 }
 
 //*******************************************************************************
@@ -584,14 +614,15 @@ void WebTransportDataProtocol::onDatagramReceived(const uint8_t* data, size_t le
         return;
     }
 
-    // Reset timeout counter atomically
-    mTimeSinceLastPacket.store(0);
-
-    // Check for control packet
+    // Check for control packet BEFORE resetting the idle timer so that exit packets
+    // don't appear as audio activity and suppress the printWaitedTooLong fallback.
     if (len == static_cast<size_t>(mControlPacketSize)) {
         processControlPacket(reinterpret_cast<const char*>(data), len);
         return;
     }
+
+    // Reset timeout counter atomically (audio packets only)
+    mTimeSinceLastPacket.store(0);
 
     if (len < sizeof(DefaultHeaderStruct)) {
         return;
