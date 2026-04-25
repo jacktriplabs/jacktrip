@@ -128,10 +128,7 @@ VirtualStudio::VirtualStudio(UserInterface& parent)
 
     // instantiate API
     m_api.reset(new VsApi(m_networkAccessManagerPtr));
-    m_api->setApiHost(PROD_API_HOST);
-    if (m_testMode) {
-        m_api->setApiHost(TEST_API_HOST);
-    }
+    m_api->setApiHost(m_testMode ? TEST_API_HOST : PROD_API_HOST);
 
     // instantiate auth
     m_auth.reset(new VsAuth(m_networkAccessManagerPtr, m_api.data()));
@@ -214,10 +211,10 @@ VirtualStudio::VirtualStudio(UserInterface& parent)
         QStringLiteral("permissions"),
         QVariant::fromValue(&m_audioConfigPtr->getPermissions()));
     m_view->setSource(QUrl(QStringLiteral("qrc:/vs/vs.qml")));
-    m_view->setMinimumSize(QSize(800, 640));
+    m_view->setMinimumSize(QSize(VS_DEFAULT_WINDOW_WIDTH, VS_DEFAULT_WINDOW_HEIGHT));
     // m_view->setMaximumSize(QSize(696, 577));
     m_view->setResizeMode(QQuickView::SizeRootObjectToView);
-    m_view->resize(800 * m_uiScale, 640 * m_uiScale);
+    m_view->resize(m_savedWindowWidth, m_savedWindowHeight);
 
     // Connect our timers
     connect(this, &VirtualStudio::scheduleStudioRefresh, this,
@@ -620,14 +617,14 @@ void VirtualStudio::setWindowState(QString state)
 
 QString VirtualStudio::apiHost()
 {
-    return m_apiHost;
+    return m_api.isNull() ? PROD_API_HOST : m_api->getApiHost();
 }
 
 void VirtualStudio::setApiHost(QString host)
 {
-    if (m_apiHost == host)
+    if (m_api.isNull() || m_api->getApiHost() == host)
         return;
-    m_apiHost = host;
+    m_api->setApiHost(host);
     emit apiHostChanged();
 }
 
@@ -1009,9 +1006,13 @@ void VirtualStudio::loadSettings()
     // use setters to emit signals for these if they change; otherwise, the
     // user interface will not revert back after cancelling settings changes
     setUiScale(settings.value(QStringLiteral("UiScale"), 1).toFloat());
-    setDarkMode(settings.value(QStringLiteral("DarkMode"), false).toBool());
+    setDarkMode(settings.value(QStringLiteral("DarkMode"), true).toBool());
     setShowDeviceSetup(settings.value(QStringLiteral("ShowDeviceSetup"), true).toBool());
     setShowWarnings(settings.value(QStringLiteral("ShowWarnings"), true).toBool());
+    m_savedWindowWidth =
+        settings.value(QStringLiteral("WindowWidth"), VS_DEFAULT_WINDOW_WIDTH).toInt();
+    m_savedWindowHeight =
+        settings.value(QStringLiteral("WindowHeight"), VS_DEFAULT_WINDOW_HEIGHT).toInt();
     settings.endGroup();
 
     m_audioConfigPtr->loadSettings();
@@ -1026,6 +1027,8 @@ void VirtualStudio::saveSettings()
     settings.setValue(QStringLiteral("DarkMode"), m_darkMode);
     settings.setValue(QStringLiteral("ShowDeviceSetup"), m_showDeviceSetup);
     settings.setValue(QStringLiteral("ShowWarnings"), m_showWarnings);
+    settings.setValue(QStringLiteral("WindowWidth"), m_view->width());
+    settings.setValue(QStringLiteral("WindowHeight"), m_view->height());
     settings.endGroup();
 
     m_audioConfigPtr->saveSettings();
@@ -1348,6 +1351,13 @@ void VirtualStudio::exit()
         emit signalExit();
     }
 
+    // persist window dimensions before exiting
+    QSettings settings;
+    settings.beginGroup(QStringLiteral("VirtualStudio"));
+    settings.setValue(QStringLiteral("WindowWidth"), m_view->width());
+    settings.setValue(QStringLiteral("WindowHeight"), m_view->height());
+    settings.endGroup();
+
     // triggering isExitingChanged will force any WebEngine things to close properly
     m_isExiting = true;
     emit isExitingChanged();
@@ -1371,11 +1381,7 @@ void VirtualStudio::slotAuthSucceeded()
     raiseToTop();
 
     // Determine which API host to use
-    m_apiHost = PROD_API_HOST;
-    if (m_testMode) {
-        m_apiHost = TEST_API_HOST;
-    }
-    m_api->setApiHost(m_apiHost);
+    setApiHost(m_testMode ? TEST_API_HOST : PROD_API_HOST);
 
     // initialize new VsDevice and wire up signals/slots before registering app
     if (!m_devicePtr.isNull()) {

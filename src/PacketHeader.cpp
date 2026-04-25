@@ -202,6 +202,74 @@ bool DefaultHeader::checkPeerSettings(int8_t* full_packet)
 }
 
 //***********************************************************************
+bool DefaultHeader::validatePeerHeader(const int8_t* full_packet,
+                                       int received_bytes) const
+{
+    if (received_bytes < static_cast<int>(sizeof(DefaultHeaderStruct))) {
+        std::cerr << "ERROR: Received packet too small to contain header ("
+                  << received_bytes << " < " << sizeof(DefaultHeaderStruct) << ")"
+                  << endl;
+        return false;
+    }
+
+    const DefaultHeaderStruct* h =
+        reinterpret_cast<const DefaultHeaderStruct*>(full_packet);
+
+    if (h->BufferSize == 0 || h->BufferSize > gMaxBufferSizeInSamples) {
+        std::cerr << "ERROR: Peer BufferSize out of range: " << h->BufferSize << endl;
+        return false;
+    }
+
+    if (h->NumIncomingChannelsFromNet == 0
+        || h->NumIncomingChannelsFromNet > gMaxAudioChannels) {
+        std::cerr << "ERROR: Peer NumIncomingChannelsFromNet out of range: "
+                  << static_cast<int>(h->NumIncomingChannelsFromNet) << endl;
+        return false;
+    }
+
+    // 0 is a valid sentinel (symmetric config); 0xff is the "no input" sentinel
+    if (h->NumOutgoingChannelsToNet != 0
+        && h->NumOutgoingChannelsToNet != (std::numeric_limits<uint8_t>::max)()
+        && h->NumOutgoingChannelsToNet > gMaxAudioChannels) {
+        std::cerr << "ERROR: Peer NumOutgoingChannelsToNet out of range: "
+                  << static_cast<int>(h->NumOutgoingChannelsToNet) << endl;
+        return false;
+    }
+
+    const uint8_t br = h->BitResolution;
+    if (br != 8 && br != 16 && br != 24 && br != 32) {
+        std::cerr << "ERROR: Peer BitResolution invalid: " << static_cast<int>(br)
+                  << endl;
+        return false;
+    }
+
+    // Use the effective outgoing channel count to compute expected audio payload.
+    // When NumOutgoingChannelsToNet == 0 the peer sends NumIncomingChannelsFromNet worth
+    // of audio; the 0xff sentinel means no input (0 audio bytes from that direction).
+    uint8_t effective_chans;
+    if (h->NumOutgoingChannelsToNet == 0) {
+        effective_chans = h->NumIncomingChannelsFromNet;
+    } else if (h->NumOutgoingChannelsToNet == (std::numeric_limits<uint8_t>::max)()) {
+        effective_chans = 0;
+    } else {
+        effective_chans = h->NumOutgoingChannelsToNet;
+    }
+
+    int expected_audio_bytes =
+        static_cast<int>(h->BufferSize) * effective_chans * (br / 8);
+    int min_packet_size =
+        static_cast<int>(sizeof(DefaultHeaderStruct)) + expected_audio_bytes;
+
+    if (received_bytes < min_packet_size) {
+        std::cerr << "ERROR: Received packet too small for declared audio payload ("
+                  << received_bytes << " < " << min_packet_size << ")" << endl;
+        return false;
+    }
+
+    return true;
+}
+
+//***********************************************************************
 void DefaultHeader::printHeader() const
 {
     cout << "Default Packet Header:" << endl;

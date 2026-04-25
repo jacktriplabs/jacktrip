@@ -311,7 +311,6 @@ class VirtualStudio : public QObject
     QString m_updateChannel;
     QString m_refreshToken;
     QString m_userId;
-    QString m_apiHost               = PROD_API_HOST;
     ReconnectState m_reconnectState = ReconnectState::NOT_RECONNECTING;
 
     bool m_firstRefresh           = true;
@@ -330,6 +329,8 @@ class VirtualStudio : public QObject
     bool m_authenticated          = false;
     bool m_useStudioQueueBuffer   = true;
     int m_queueBuffer             = 0;
+    int m_savedWindowWidth        = VS_DEFAULT_WINDOW_WIDTH;
+    int m_savedWindowHeight       = VS_DEFAULT_WINDOW_HEIGHT;
     float m_fontScale             = 1;
     float m_uiScale               = 1;
     uint32_t m_webChannelPort     = 1;

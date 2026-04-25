@@ -45,6 +45,7 @@
 #include <QString>
 #include <QTimer>
 #include <QUdpSocket>
+#include <functional>
 #include <stdexcept>
 
 #include "AudioInterface.h"
@@ -57,6 +58,18 @@
 #include "AudioTester.h"
 #include "PacketHeader.h"
 #include "RingBuffer.h"
+
+#ifdef WEBRTC_SUPPORT
+#include <memory>
+namespace rtc
+{
+class DataChannel;
+}
+#endif
+
+#ifdef WEBTRANSPORT_SUPPORT
+class WebTransportSession;
+#endif
 
 // #include <signal.h>
 /** \brief Main class to creates a SERVER (to listen) or a CLIENT (to connect
@@ -75,9 +88,12 @@ class JackTrip : public QObject
     //----------ENUMS------------------------------------------
     /// \brief Enum for the data Protocol. At this time only UDP is implemented
     enum dataProtocolT {
-        UDP,  ///< Use UDP (User Datagram Protocol)
-        TCP,  ///< <B>NOT IMPLEMENTED</B>: Use TCP (Transmission Control Protocol)
-        SCTP  ///< <B>NOT IMPLEMENTED</B>: Use SCTP (Stream Control Transmission Protocol)
+        UDP,          ///< Use UDP (User Datagram Protocol)
+        TCP,          ///< <B>NOT IMPLEMENTED</B>: Use TCP (Transmission Control Protocol)
+        SCTP,         ///< <B>NOT IMPLEMENTED</B>: Use SCTP (Stream Control Transmission
+                      ///< Protocol)
+        WEBRTC,       ///< Use WebRTC Data Channels (requires libdatachannel)
+        WEBTRANSPORT  ///< Use WebTransport (HTTP/3 based transport)
     };
 
     /// \brief Enum for the JackTrip mode
@@ -391,9 +407,26 @@ class JackTrip : public QObject
     void putHeaderInOutgoingPacket(int8_t* full_packet, int8_t* audio_packet);
     int getSendPacketSizeInBytes() const;
     int getReceivePacketSizeInBytes() const;
+
+    /// \brief Callback type for direct packet sending (bypasses ring buffer)
+    using DirectSendCallback = std::function<void(const int8_t*, int)>;
+
+    /// \brief Set a direct send callback (used by WebTransport for real-time sending)
+    void setDirectSendCallback(DirectSendCallback callback)
+    {
+        mDirectSendCallback = callback;
+    }
+
     virtual void sendNetworkPacket(const int8_t* ptrToSlot)
     {
-        mSendRingBuffer->insertSlotNonBlocking(ptrToSlot, 0, 0, 0);
+        if (mDirectSendCallback) {
+            // Use direct callback for real-time protocols (WebTransport)
+            // ptrToSlot points to audio data only (no header), so pass audio size only
+            mDirectSendCallback(ptrToSlot, getTotalAudioInputPacketSizeInBytes());
+        } else {
+            // Use ring buffer for traditional protocols (UDP, WebRTC)
+            mSendRingBuffer->insertSlotNonBlocking(ptrToSlot, 0, 0, 0);
+        }
     }
     virtual void receiveBroadcastPacket(int8_t* ptrToReadSlot)
     {
@@ -456,6 +489,10 @@ class JackTrip : public QObject
 #endif
     }
     virtual bool checkPeerSettings(int8_t* full_packet);
+    bool validatePeerHeader(const int8_t* full_packet, int received_bytes) const
+    {
+        return mPacketHeader->validatePeerHeader(full_packet, received_bytes);
+    }
     void increaseSequenceNumber() { mPacketHeader->increaseSequenceNumber(); }
     int getSequenceNumber() const { return mPacketHeader->getSequenceNumber(); }
 
@@ -489,8 +526,11 @@ class JackTrip : public QObject
         return mPacketHeader->getPeerNumIncomingChannels(full_packet);
     }
 
+    /// \brief Get the number of outgoing channels from peer packet
+    /// Decodes the space-optimized encoding where 0 means symmetric (same as incoming)
     uint8_t getPeerNumOutgoingChannels(int8_t* full_packet) const
     {
+        // If value is 0, it means symmetric configuration (outgoing == incoming)
         if (0 == mPacketHeader->getPeerNumOutgoingChannels(full_packet)) {
             return mPacketHeader->getPeerNumIncomingChannels(full_packet);
         } else {
@@ -577,6 +617,23 @@ class JackTrip : public QObject
         mSimulatedDelayRel   = delay_rel;
     }
     void setBroadcast(int broadcast_queue) { mBroadcastQueueLength = broadcast_queue; }
+
+#ifdef WEBRTC_SUPPORT
+    /// \brief Set the WebRTC data channel for transport
+    void setWebRtcDataChannel(std::shared_ptr<rtc::DataChannel> dataChannel)
+    {
+        mWebRtcDataChannel = dataChannel;
+    }
+#endif
+
+#ifdef WEBTRANSPORT_SUPPORT
+    /// \brief Set the WebTransport session for transport
+    void setWebTransportSession(WebTransportSession* session)
+    {
+        mWebTransportSession = session;
+    }
+#endif
+
     void queueLengthChanged(int queueLength)
     {
         emit signalQueueLengthChanged(queueLength);
@@ -598,8 +655,7 @@ class JackTrip : public QObject
      */
     void slotUdpWaitingTooLongClientGoneProbably(int wait_msec)
     {
-        int wait_time = 10000;  // msec
-        if (!(wait_msec % wait_time)) {
+        if (!(wait_msec % gClientGoneTimeoutMs)) {
             std::cerr << "UDP WAITED MORE THAN 10 seconds." << std::endl;
             if (mStopOnTimeout) {
                 stop(QStringLiteral("No network data received for 10 seconds"));
@@ -621,7 +677,7 @@ class JackTrip : public QObject
     void receivedDataTCP();
     void receivedErrorTCP(QAbstractSocket::SocketError socketError);
     void connectionSecured();
-    void receivedDataUDP();
+    void receivedFirstPacketUDP();
     void udpTimerTick();
     void tcpTimerTick();
 
@@ -708,6 +764,8 @@ class JackTrip : public QObject
     RingBuffer* mSendRingBuffer;
     /// Pointer for the Receive RingBuffer
     RingBuffer* mReceiveRingBuffer;
+    /// Direct send callback (bypasses ring buffer for real-time protocols)
+    DirectSendCallback mDirectSendCallback;
 
     int mReceiverBindPort;  ///< Incoming (receiving) port for local machine
     int mSenderPeerPort;    ///< Incoming (receiving) port for peer machine
@@ -754,12 +812,22 @@ class JackTrip : public QObject
     QSharedPointer<std::ostream> mIOStatStream;
     int mIOStatTimeout;
     std::ostream mIOStatLogStream;
+    QTimer* mStatTimer;  ///< Timer for stats reporting
     double mSimulatedLossRate;
     double mSimulatedJitterRate;
     double mSimulatedDelayRel;
     bool mUseRtUdpPriority;
 
     QSharedPointer<AudioTester> mAudioTesterP;
+
+#ifdef WEBRTC_SUPPORT
+    std::shared_ptr<rtc::DataChannel> mWebRtcDataChannel;  ///< WebRTC data channel
+#endif
+
+#ifdef WEBTRANSPORT_SUPPORT
+    WebTransportSession* mWebTransportSession =
+        nullptr;  ///< WebTransport session (not owned)
+#endif
 };
 
 #endif

@@ -1,3 +1,17 @@
+- Version: "3.0.0"
+  Date: 2026-04-25
+  Description:
+  - (added) VS Mode now uses jacktrip.com for studios list
+  - (added) Hub server support for WebTransport connections
+  - (added) Hub server support for WebRTC datachannel connections
+  - (updated) Default OSC port is now hub server port + 1
+  - (updated) Re-enabling classic mode for signed Windows builds
+  - (updated) VS Mode prefer default audio devices on first run
+  - (updated) VS Mode restore previously used window dimensions
+  - (fixed) Potential hub server crash if invalid peer settings
+  - (fixed) Use DSCP value of 46 instead of 56 for UDP packets
+  - (fixed) Added guards to protect against buffer overflows
+  - (fixed) Stats timer lifecycle issues
 - Version: "2.7.2"
   Date: 2026-02-06
   Description:

@@ -86,6 +86,7 @@
 
 #include "JitterBuffer.h"  // for broadcast
 
+using std::cerr;
 using std::cout;
 using std::endl;
 using std::setw;
@@ -97,7 +98,7 @@ constexpr int HISTFPP      = 128;    // default FPP when calibrating burg window
 
 constexpr int NumSlots   = 4096;   // NumSlots looped for recent arrivals
 constexpr double AutoMax = 250.0;  // msec bounds on insane IPI, like ethernet unplugged
-constexpr double AutoInitDur = 2000.0;  // kick in auto after this many msec
+constexpr double AutoInitDur = 3000.0;  // kick in auto after this many msec
 constexpr double AutoInitValFactor =
     0.5;  // scale for initial mMsecTolerance during init phase if unspecified
 
@@ -339,6 +340,14 @@ void Regulator::setFPPratio(int len)
         return;
     }
 
+    const int kMaxPeerBytes =
+        static_cast<int>(gMaxBufferSizeInSamples) * gMaxAudioChannels * 4;
+    if (len <= 0 || len > kMaxPeerBytes) {
+        cerr << "Regulator::setFPPratio: peer packet len out of range (" << len
+             << "); ignoring." << endl;
+        return;
+    }
+
     mPeerBytes           = len;
     mPeerFPP             = len / (mNumChannels * mBitResolutionMode);
     mPeerFPPdurMsec      = 1000.0 * mPeerFPP / mSampleRate;
@@ -494,11 +503,12 @@ void Regulator::updateTolerance(int glitches, int skipped)
             } else {
                 // don't increase headroom two intervals in a row
                 mSkipAutoHeadroom = true;
-                if (mLastMaxLatency > mMsecTolerance + 1) {
-                    // increase headroom enough to cover any skipped packets
+                if (mLastMaxLatency > mMsecTolerance + 3.0) {
+                    // special case to grow headroom faster to catch up
                     mCurrentHeadroom = std::min<double>(
                         maxHeadroom,
-                        mCurrentHeadroom + std::ceil(mLastMaxLatency - mMsecTolerance));
+                        mCurrentHeadroom
+                            + std::ceil((mLastMaxLatency - mMsecTolerance) / 2.0));
                 } else {
                     ++mCurrentHeadroom;
                 }
@@ -563,7 +573,8 @@ void Regulator::updatePushStats(int seq_num)
                 // a calculated tolerance. Otherwise, the switch can
                 // sometimes cause it to bump headroom prematurely even
                 // though there are no real audio glitches.
-                mStatsMaxLatency = 0;  // ignore during warmup
+                mLastMaxLatency  = 0;  // ignore during warmup
+                mStatsMaxLatency = 0;
                 updateTolerance(0, 0);
             } else {
                 mLastMaxLatency  = mStatsMaxLatency;  // only set after warmup
@@ -590,7 +601,7 @@ void Regulator::setQueueBufferLength(int queueBuffer)
         mAutoHeadroom          = -1;
         mCurrentHeadroom       = 0;
         mSkipAutoHeadroom      = true;
-        mAutoHeadroomStartTime = pushStat ? (pushStat->lastTime + AutoInitDur) : 4000.0;
+        mAutoHeadroomStartTime = pushStat ? (pushStat->lastTime + AutoInitDur) : 6000.0;
     } else {
         mAutoHeadroom    = std::abs(queueBuffer);
         mCurrentHeadroom = mAutoHeadroom;

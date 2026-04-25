@@ -169,7 +169,7 @@ void setRealtimeProcessPriority()
             priority = "idle";
             break;
         case NORMAL_PRIORITY_CLASS:
-            priority = "high";
+            priority = "normal";
             break;
         case REALTIME_PRIORITY_CLASS:
             priority = "realtime";
@@ -224,9 +224,9 @@ void setRealtimeProcessPriority()
 {
     int priority = sched_get_priority_max(SCHED_FIFO);  // 99 is the highest possible
 #ifdef __UBUNTU__
-    priority     = 95;  // anything higher is silently ignored by Ubuntu 18.04
+    priority = 95;  // anything higher is silently ignored by Ubuntu 18.04
 #endif
-    priority     = 3;
+    priority = 3;
 
     struct sched_param sp = {.sched_priority = priority};
 

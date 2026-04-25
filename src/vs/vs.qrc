@@ -23,6 +23,7 @@
     <file>VolumeSlider.qml</file>
     <file>DeviceControls.qml</file>
     <file>DeviceControlsGroup.qml</file>
+    <file>StyledButton.qml</file>
     <file>DeviceRefreshButton.qml</file>
     <file>DeviceWarning.qml</file>
     <file>DeviceWarningModal.qml</file>
@@ -48,6 +49,9 @@
     <file>start.svg</file>
     <file>star.svg</file>
     <file>cog.svg</file>
+    <file>home.svg</file>
+    <file>squares-2x2.svg</file>
+    <file>question-mark-circle.svg</file>
     <file>mic.svg</file>
     <file>language.svg</file>
     <file>micoff.svg</file>
@@ -56,6 +60,9 @@
     <file>quiet.svg</file>
     <file>loud.svg</file>
     <file>refresh.svg</file>
+    <file>arrow-left.svg</file>
+    <file>arrow-right.svg</file>
+    <file>arrow-top-right-on-square.svg</file>
     <file>ethernet.svg</file>
     <file>networkCheck.svg</file>
     <file>externalMic.svg</file>

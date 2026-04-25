@@ -27,7 +27,7 @@ RUN apt-get update \
   && apt-get install -yq --no-install-recommends help2man clang-tidy desktop-file-utils
 RUN python3 -m pip install --upgrade pip \
   && python3 -m pip install --upgrade certifi \
-  && python3 -m pip install meson pyyaml Jinja2
+  && python3 -m pip install meson==1.10.2 pyyaml Jinja2
 
 WORKDIR /opt/jacktrip
 

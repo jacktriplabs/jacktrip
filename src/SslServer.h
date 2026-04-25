@@ -37,6 +37,7 @@
 #ifndef __SSLSERVER_H__
 #define __SSLSERVER_H__
 
+#include <QList>
 #include <QSslCertificate>
 #include <QSslKey>
 #include <QTcpServer>
@@ -51,10 +52,11 @@ class SslServer : public QTcpServer
 
     void incomingConnection(qintptr socketDescriptor) override;
     void setCertificate(const QSslCertificate& certificate);
+    void setCertificateChain(const QList<QSslCertificate>& chain);
     void setPrivateKey(const QSslKey& key);
 
    private:
-    QSslCertificate m_certificate;
+    QList<QSslCertificate> m_certificateChain;
     QSslKey m_privateKey;
 };
 

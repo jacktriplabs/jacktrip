@@ -56,6 +56,15 @@
 #include "JackTripWorker.h"
 #include "jacktrip_globals.h"
 
+#ifdef WEBRTC_SUPPORT
+#include "webrtc/WebRtcPeerConnection.h"
+#endif
+
+#ifdef WEBTRANSPORT_SUPPORT
+#include "webtransport/WebTransportSession.h"
+#endif
+
+using std::cerr;
 using std::cout;
 using std::endl;
 
@@ -116,12 +125,23 @@ UdpHubListener::UdpHubListener(int server_port, int server_udp_port, QObject* pa
     mSimulatedDelayRel   = 0.0;
 
     mUseRtUdpPriority = false;
+
+#ifdef WEBTRANSPORT_SUPPORT
+    mHttp3Server = nullptr;
+#endif
 }
 
 //*******************************************************************************
 UdpHubListener::~UdpHubListener()
 {
     mStopCheckTimer.stop();
+#ifdef WEBTRANSPORT_SUPPORT
+    if (mHttp3Server) {
+        mHttp3Server->stop();
+        delete mHttp3Server;
+        mHttp3Server = nullptr;
+    }
+#endif
     QMutexLocker lock(&mMutex);
     // delete mJTWorker;
     for (int i = 0; i < gMaxThreads; i++) {
@@ -151,9 +171,9 @@ void UdpHubListener::start()
         return;
     }
 
-    if (mRequireAuth) {
-        cout << "JackTrip HUB SERVER: Enabling authentication" << endl;
-        // Check that SSL is available
+    // Load TLS cert+key whenever both files are provided — needed for mRequireAuth and
+    // for accepting WebRTC WSS (wss://) connections via TLS sniffing on port 4464.
+    if (!mCertFile.isEmpty() && !mKeyFile.isEmpty()) {
         bool error = false;
         QString error_message;
         if (!QSslSocket::supportsSsl()) {
@@ -163,21 +183,21 @@ void UdpHubListener::start()
                 "libraries\ninstalled to enable authentication.";
         }
 
-        if (mCertFile.isEmpty()) {
-            error         = true;
-            error_message = QStringLiteral("No certificate file specified.");
-        } else if (mKeyFile.isEmpty()) {
-            error         = true;
-            error_message = QStringLiteral("No private key file specified.");
-        }
-
-        // Load our certificate and private key
         if (!error) {
             QFile certFile(mCertFile);
             if (certFile.open(QIODevice::ReadOnly)) {
-                QSslCertificate cert(certFile.readAll());
-                if (!cert.isNull()) {
-                    mTcpServer.setCertificate(cert);
+                // Read all PEM blocks from the file so that the full certificate
+                // chain (leaf + any intermediate CA certs) is sent to clients.
+                // Using QSslCertificate(data) would silently read only the first
+                // block, leaving out intermediates that browsers need to verify trust.
+                QList<QSslCertificate> chain =
+                    QSslCertificate::fromData(certFile.readAll());
+                if (!chain.isEmpty() && !chain.first().isNull()) {
+                    mTcpServer.setCertificateChain(chain);
+                    if (chain.size() > 1) {
+                        cout << "JackTrip HUB SERVER: Loaded certificate chain ("
+                             << chain.size() << " certificates)" << endl;
+                    }
                 } else {
                     error         = true;
                     error_message = QStringLiteral("Unable to load certificate file.");
@@ -191,18 +211,50 @@ void UdpHubListener::start()
         if (!error) {
             QFile keyFile(mKeyFile);
             if (keyFile.open(QIODevice::ReadOnly)) {
-                QSslKey key(&keyFile, QSsl::Rsa);
+                const QByteArray keyPem = keyFile.readAll();
+                // Certbot / Let's Encrypt may issue ECDSA keys; PEM must be matched to
+                // QSsl::Rsa or QSsl::Ec — a wrong algorithm yields a null QSslKey.
+                QSslKey key(keyPem, QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey);
+                if (key.isNull()) {
+                    key = QSslKey(keyPem, QSsl::Ec, QSsl::Pem, QSsl::PrivateKey);
+                }
                 if (!key.isNull()) {
                     mTcpServer.setPrivateKey(key);
                 } else {
-                    error = true;
-                    error_message =
-                        QStringLiteral("Unable to read RSA private key file.");
+                    error         = true;
+                    error_message = QStringLiteral(
+                        "Unable to read private key file (unsupported "
+                        "algorithm or invalid PEM).");
                 }
             } else {
                 error         = true;
-                error_message = QStringLiteral("Could not find RSA private key file.");
+                error_message = QStringLiteral("Could not find private key file.");
             }
+        }
+
+        if (error) {
+            if (mRequireAuth) {
+                emit signalError(error_message);
+                return;
+            }
+            cerr << "JackTrip HUB SERVER: TLS certificate loading failed: "
+                 << error_message.toStdString() << endl;
+        } else {
+            cout << "JackTrip HUB SERVER: Loaded TLS certificate" << endl;
+            mTlsConfigured = true;
+        }
+    }
+
+    if (mRequireAuth) {
+        cout << "JackTrip HUB SERVER: Enabling authentication" << endl;
+        bool error = false;
+        QString error_message;
+        if (mCertFile.isEmpty()) {
+            error         = true;
+            error_message = QStringLiteral("No certificate file specified.");
+        } else if (mKeyFile.isEmpty()) {
+            error         = true;
+            error_message = QStringLiteral("No private key file specified.");
         }
 
         if (!error) {
@@ -222,6 +274,39 @@ void UdpHubListener::start()
 
     startOscServer();
 
+#ifdef WEBRTC_SUPPORT
+    if (mTlsConfigured) {
+        cout << "JackTrip HUB SERVER: WebRTC data channels enabled" << endl;
+    } else {
+        cout << "JackTrip HUB SERVER: WebRTC data channels disabled (no TLS certificate)"
+             << endl;
+    }
+#endif
+
+#ifdef WEBTRANSPORT_SUPPORT
+    if (mTlsConfigured) {
+        mHttp3Server = new Http3Server(mCertFile, mKeyFile, mServerPort);
+        mHttp3Server->setConnectionCallback(
+            [this](HQUIC connection, const QHostAddress& addr, quint16 port) {
+                int workerId = createWebTransportWorker(connection, addr, port);
+                if (workerId < 0) {
+                    cerr << "JackTrip HUB SERVER: No available slots for WebTransport "
+                            "client"
+                         << endl;
+                }
+            });
+        if (mHttp3Server->start()) {
+            cout << "JackTrip HUB SERVER: WebTransport enabled" << endl;
+        } else {
+            cerr << "JackTrip HUB SERVER: Failed to initialize WebTransport" << endl;
+            delete mHttp3Server;
+            mHttp3Server = nullptr;
+        }
+    } else {
+        cout << "JackTrip HUB SERVER: WebTransport disabled (no TLS certificate)" << endl;
+    }
+#endif
+
     cout << "JackTrip HUB SERVER: Waiting for client connections..." << endl;
     cout << "JackTrip HUB SERVER: Hub auto audio patch setting = " << mHubPatch << " ("
          << mHubPatchDescriptions.at(mHubPatch).toStdString() << ")" << endl;
@@ -239,13 +324,44 @@ void UdpHubListener::receivedNewConnection()
     QSslSocket* clientSocket =
         static_cast<QSslSocket*>(mTcpServer.nextPendingConnection());
     connect(clientSocket, &QAbstractSocket::readyRead, this, [this, clientSocket] {
-        receivedClientInfo(clientSocket);
+        readyRead(clientSocket);
     });
     cout << "JackTrip HUB SERVER: Client Connection Received!" << endl;
 }
 
-void UdpHubListener::receivedClientInfo(QSslSocket* clientConnection)
+void UdpHubListener::readyRead(QSslSocket* clientConnection)
 {
+    if (!clientConnection->isEncrypted()) {
+        // Detect TLS ClientHello by inspecting the 3-byte TLS record header:
+        //   { 0x16, 0x03, minor } where minor is 0x01–0x04 (TLS 1.0–1.3).
+        // Checking 3 bytes is unambiguous: a valid port number sent by the binary hub
+        // protocol (a 32-bit LE integer ≤ 65535) requires bytes[2] == 0x00, so no valid
+        // port can collide with the TLS prefix. Port 22 (byte[0] == 0x16) and port 790
+        // (bytes[0,1] == {0x16, 0x03}) are the nearest false-positives with a shorter
+        // check; both are ruled out by the third byte. Wait for 3 bytes if they have
+        // not yet arrived rather than making a premature decision.
+        QByteArray header = clientConnection->peek(3);
+        if (header.size() < 3) {
+            return;
+        }
+        if (static_cast<unsigned char>(header[0]) == 0x16
+            && static_cast<unsigned char>(header[1]) == 0x03
+            && static_cast<unsigned char>(header[2]) >= 0x01
+            && static_cast<unsigned char>(header[2]) <= 0x04) {
+            cout << "JackTrip HUB SERVER: TLS ClientHello detected" << endl;
+            if (!mTlsConfigured) {
+                cerr << "JackTrip HUB SERVER: Received TLS ClientHello but no "
+                        "certificate is configured. Closing connection."
+                     << endl;
+                clientConnection->close();
+                clientConnection->deleteLater();
+                return;
+            }
+            clientConnection->startServerEncryption();
+            return;
+        }
+    }
+
     QHostAddress PeerAddress = clientConnection->peerAddress();
     cout << "JackTrip HUB SERVER: Client Connect Received from Address : "
          << PeerAddress.toString().toStdString() << endl;
@@ -253,7 +369,6 @@ void UdpHubListener::receivedClientInfo(QSslSocket* clientConnection)
     // Get UDP port from client
     // ------------------------
     QString clientName = QString();
-    cout << "JackTrip HUB SERVER: Reading UDP port from Client..." << endl;
     int peer_udp_port;
     if (!clientConnection->isEncrypted()) {
         if (clientConnection->bytesAvailable() < (int)sizeof(qint32)) {
@@ -293,6 +408,91 @@ void UdpHubListener::receivedClientInfo(QSslSocket* clientConnection)
             return;
         }
     } else {
+        // Socket is in SSL mode. Check for a WebSocket upgrade before falling through to
+        // the binary authentication flow — browsers send HTTP GET after the TLS
+        // handshake.
+#ifdef WEBRTC_SUPPORT
+        QByteArray peekData = clientConnection->peek(512);
+        if (peekData.startsWith("GET") || peekData.startsWith("OPTIONS")) {
+            // Extract the Origin header (case-insensitive) so we can echo it back in
+            // Access-Control-Allow-Origin, enabling cross-origin browser clients.
+            QByteArray origin;
+            int originIdx = peekData.toLower().indexOf("\r\norigin: ");
+            if (originIdx != -1) {
+                int valueStart = originIdx + 10;  // len("\r\norigin: ") == 10
+                int valueEnd   = peekData.indexOf('\r', valueStart);
+                if (valueEnd != -1) {
+                    origin = peekData.mid(valueStart, valueEnd - valueStart).trimmed();
+                }
+            }
+
+            // Build CORS response headers only when the request carries an Origin.
+            QByteArray corsHeaders;
+            if (!origin.isEmpty()) {
+                corsHeaders = "Access-Control-Allow-Origin: " + origin + "\r\n"
+                              "Access-Control-Allow-Methods: GET, OPTIONS\r\n"
+                              "Access-Control-Allow-Headers: Content-Type\r\n";
+            }
+
+            // Respond to CORS preflight (OPTIONS) immediately.
+            if (peekData.startsWith("OPTIONS")) {
+                QByteArray response =
+                    "HTTP/1.1 204 No Content\r\n"
+                    "Connection: close\r\n"
+                    + corsHeaders + "\r\n";
+                clientConnection->write(response);
+                clientConnection->flush();
+                clientConnection->disconnectFromHost();
+                return;
+            }
+
+            // Extract the request line to check for the /ping health-check endpoint.
+            // This lets browser clients verify TLS + HTTP connectivity before
+            // attempting a WebSocket upgrade, which is useful for diagnosing
+            // connection issues.
+            QByteArray requestLine         = peekData.left(peekData.indexOf('\r'));
+            QList<QByteArray> requestParts = requestLine.split(' ');
+            QByteArray requestPath =
+                requestParts.size() > 1 ? requestParts[1] : QByteArray();
+            if (requestPath == "/ping") {
+                cout << "JackTrip HUB SERVER: Responding to /ping health check" << endl;
+                QByteArray body = "{\"status\":\"OK\"}";
+                QByteArray response =
+                    "HTTP/1.1 200 OK\r\n"
+                    "Content-Type: application/json\r\n"
+                    "Content-Length: "
+                    + QByteArray::number(body.size()) + "\r\n" + "Connection: close\r\n"
+                    + corsHeaders + "\r\n" + body;
+                clientConnection->write(response);
+                clientConnection->flush();
+                clientConnection->disconnectFromHost();
+                return;
+            } else if (requestPath == "/webrtc" || requestPath.startsWith("/webrtc?")) {
+                cout << "JackTrip HUB SERVER: WebRTC connection detected" << endl;
+                disconnect(clientConnection, nullptr, this, nullptr);
+                int workerId = createWebRtcWorker(clientConnection);
+                if (workerId < 0) {
+                    cerr << "JackTrip HUB SERVER: No available slots for WebRTC client"
+                         << endl;
+                    clientConnection->close();
+                    clientConnection->deleteLater();
+                }
+                return;
+            } else {
+                QByteArray body = "{\"status\":\"Not Found\"}";
+                QByteArray response =
+                    "HTTP/1.1 404 Not Found\r\n"
+                    "Content-Type: application/json\r\n"
+                    "Content-Length: "
+                    + QByteArray::number(body.size()) + "\r\n" + "Connection: close\r\n"
+                    + corsHeaders + "\r\n" + body;
+                clientConnection->write(response);
+                clientConnection->flush();
+                clientConnection->disconnectFromHost();
+                return;
+            }
+        }
+#endif  // WEBRTC_SUPPORT
         // This branch executes when our socket is already in SSL mode and we're expecting
         // to read our authentication data.
         peer_udp_port = checkAuthAndReadPort(clientConnection, clientName);
@@ -320,38 +520,37 @@ void UdpHubListener::receivedClientInfo(QSslSocket* clientConnection)
     // or port yet. We need to wait until we receive the port value from the UDP header to
     // accommodate NAT.
     // -----------------------------
-    int id = getJackTripWorker(PeerAddress.toString(), peer_udp_port, clientName);
-
-    // Assign server port and send it to Client
-    if (id != -1) {
-        cout << "JackTrip HUB SERVER: Sending Final UDP Port to Client: "
-             << clientName.toStdString() << " = " << mJTWorkers->at(id)->getServerPort()
-             << endl;
-    }
-
-    if (id == -1
-        || sendUdpPort(clientConnection, mJTWorkers->at(id)->getServerPort()) == 0) {
+    int id = createWorker(clientName);
+    if (id < 0) {
+        cerr << "JackTrip HUB SERVER: No available slots for new client" << endl;
         clientConnection->close();
         clientConnection->deleteLater();
-        releaseThread(id);
         return;
     }
+
+    mJTWorkers->at(id)->setJackTrip(
+        id, PeerAddress.toString(), mBasePort + id,
+        0,  // Set client port to 0 initially until we receive a UDP packet.
+        m_connectDefaultAudioPorts);
+
+    // Assign server port and send it to Client
+    cout << "JackTrip HUB SERVER: Sending Final UDP Port to Client: "
+         << clientName.toStdString() << " = " << mJTWorkers->at(id)->getServerPort()
+         << endl;
+
+    int send_port_result =
+        sendUdpPort(clientConnection, mJTWorkers->at(id)->getServerPort());
 
     // Close and mark socket for deletion
     // ----------------------------------
     clientConnection->close();
     clientConnection->deleteLater();
-    cout << "JackTrip HUB SERVER: Client TCP Connection Closed!" << endl;
 
-    if (mIOStatTimeout > 0) {
-        mJTWorkers->at(id)->setIOStatTimeout(mIOStatTimeout);
-        mJTWorkers->at(id)->setIOStatStream(mIOStatStream);
+    if (send_port_result == 0) {
+        releaseThread(id);
+        return;
     }
-    mJTWorkers->at(id)->setBufferStrategy(mBufferStrategy);
-    mJTWorkers->at(id)->setNetIssuesSimulation(mSimulatedLossRate, mSimulatedJitterRate,
-                                               mSimulatedDelayRel);
-    mJTWorkers->at(id)->setBroadcast(mBroadcastQueue);
-    mJTWorkers->at(id)->setUseRtUdpPriority(mUseRtUdpPriority);
+
     cout << "JackTrip HUB SERVER: Starting JackTripWorker..." << endl;
     mJTWorkers->at(id)->start();
 }
@@ -423,7 +622,7 @@ int UdpHubListener::readClientUdpPort(QSslSocket* clientConnection, QString& cli
     if (clientConnection->bytesAvailable() == gMaxRemoteNameLength) {
         char name_buf[gMaxRemoteNameLength];
         clientConnection->read(name_buf, gMaxRemoteNameLength);
-        clientName = QString::fromUtf8((const char*)name_buf);
+        clientName = QString::fromUtf8((const char*)name_buf, gMaxRemoteNameLength);
     }
 
     return udp_port;
@@ -458,8 +657,16 @@ int UdpHubListener::checkAuthAndReadPort(QSslSocket* clientConnection,
         qFromLittleEndian<qint32>(buf + gMaxRemoteNameLength + (2 * sizeof(qint32)));
     delete[] buf;
 
-    // Check if we have enough data.
-    if (clientConnection->bytesAvailable() < size + usernameLength + passwordLength + 2) {
+    // Reject negative or oversized lengths before doing any arithmetic with them.
+    if (usernameLength < 0 || usernameLength > gMaxCredentialLength || passwordLength < 0
+        || passwordLength > gMaxCredentialLength) {
+        return Auth::WRONGCREDS;
+    }
+
+    // Widen to qint64 before summing to avoid signed-integer overflow with
+    // attacker-supplied lengths.
+    if (clientConnection->bytesAvailable()
+        < static_cast<qint64>(size) + usernameLength + passwordLength + 2) {
         return 0;
     }
 
@@ -473,24 +680,23 @@ int UdpHubListener::checkAuthAndReadPort(QSslSocket* clientConnection,
     // Then our jack client name.
     char name_buf[gMaxRemoteNameLength];
     clientConnection->read(name_buf, gMaxRemoteNameLength);
-    clientName = QString::fromUtf8((const char*)name_buf);
+    clientName = QString::fromUtf8((const char*)name_buf, gMaxRemoteNameLength);
 
     // We can discard our username and password length since we already have them.
     clientConnection->read(port_buf, size);
     clientConnection->read(port_buf, size);
     delete[] port_buf;
 
-    // And then get our username and password.
+    // And then get our username and password. Read exactly usernameLength/passwordLength
+    // bytes (the +1 null terminator byte is consumed but not used as a length hint).
     QString username, password;
-    char* username_buf = new char[usernameLength + 1];
-    clientConnection->read(username_buf, usernameLength + 1);
-    username = QString::fromUtf8((const char*)username_buf);
-    delete[] username_buf;
+    QByteArray username_buf = clientConnection->read(usernameLength);
+    clientConnection->read(1);  // consume null terminator
+    username = QString::fromUtf8(username_buf.constData(), username_buf.size());
 
-    char* password_buf = new char[passwordLength + 1];
-    clientConnection->read(password_buf, passwordLength + 1);
-    password = QString::fromUtf8((const char*)password_buf);
-    delete[] password_buf;
+    QByteArray password_buf = clientConnection->read(passwordLength);
+    clientConnection->read(1);  // consume null terminator
+    password = QString::fromUtf8(password_buf.constData(), password_buf.size());
 
     // Check if our credentials are valid, and return either an error code or our port.
     Auth::AuthResponseT response = mAuth->checkCredentials(username, password);
@@ -540,34 +746,43 @@ void UdpHubListener::bindUdpSocket(QUdpSocket& udpsocket, int port)
 }
 
 //*******************************************************************************
-int UdpHubListener::getJackTripWorker(const QString& address,
-                                      [[maybe_unused]] uint16_t port, QString& clientName)
+int UdpHubListener::createWorker(QString& clientName)
 {
-    // Find our first empty slot in our vector of worker object pointers.
-    // Return -1 if we have no space left for additional threads, or the index of the new
-    // JackTripWorker.
     QMutexLocker lock(&mMutex);
+
+    // Find first empty slot
     int id = -1;
     for (int i = 0; i < gMaxThreads; i++) {
         if (mJTWorkers->at(i) == nullptr) {
             id = i;
-            i  = gMaxThreads;
+            break;
         }
     }
 
-    if (id >= 0) {
-        mTotalRunningThreads++;
-        if (mAppendThreadID) {
-            clientName = clientName + QStringLiteral("_%1").arg(id + 1);
-        }
-        mJTWorkers->replace(id,
-                            new JackTripWorker(this, mBufferQueueLength, mUnderRunMode,
-                                               mAudioBitResolution, clientName));
-        mJTWorkers->at(id)->setJackTrip(
-            id, address, mBasePort + id,
-            0,  // Set client port to 0 initially until we receive a UDP packet.
-            m_connectDefaultAudioPorts);  //
+    if (id < 0) {
+        return -1;  // No available slots
     }
+
+    mTotalRunningThreads++;
+    if (mAppendThreadID) {
+        clientName = clientName + QStringLiteral("_%1").arg(id + 1);
+    }
+
+    // Create a JackTripWorker
+    JackTripWorker* worker = new JackTripWorker(this, mBufferQueueLength, mUnderRunMode,
+                                                mAudioBitResolution, clientName);
+
+    if (mIOStatTimeout > 0) {
+        worker->setIOStatTimeout(mIOStatTimeout);
+        worker->setIOStatStream(mIOStatStream);
+    }
+    worker->setBufferStrategy(mBufferStrategy);
+    worker->setNetIssuesSimulation(mSimulatedLossRate, mSimulatedJitterRate,
+                                   mSimulatedDelayRel);
+    worker->setBroadcast(mBroadcastQueue);
+    worker->setUseRtUdpPriority(mUseRtUdpPriority);
+
+    mJTWorkers->replace(id, worker);
 
     return id;
 }
@@ -611,6 +826,26 @@ void UdpHubListener::unregisterClientWithPatcher(QString& clientName)
     connectPatch(false, clientName);
 }
 #endif  // NO_JACK
+
+//*******************************************************************************
+void UdpHubListener::handleWorkerRemoval()
+{
+    // Get the worker that emitted the signal
+    JackTripWorker* worker = qobject_cast<JackTripWorker*>(sender());
+    if (!worker) {
+        cerr << "UdpHubListener::handleWorkerRemoval: ERROR - sender is not a "
+                "JackTripWorker"
+             << endl;
+        return;
+    }
+
+    int id = worker->getID();
+    if (gVerboseFlag) {
+        cout << "UdpHubListener: Removing worker " << id << endl;
+    }
+
+    releaseThread(id);
+}
 
 //*******************************************************************************
 int UdpHubListener::releaseThread(int id)
@@ -707,6 +942,85 @@ void UdpHubListener::stopAllThreads()
         }
     }
 }
+
+#ifdef WEBRTC_SUPPORT
+//*******************************************************************************
+int UdpHubListener::createWebRtcWorker(QSslSocket* signalingSocket)
+{
+    // Create worker with a temporary placeholder name
+    // It will be updated with the actual client name after WebSocket upgrade
+    QString tempName = QStringLiteral("");
+    int id           = createWorker(tempName);
+    if (id < 0) {
+        return -1;  // No available slots
+    }
+    JackTripWorker* worker = mJTWorkers->at(id);
+
+    // Ensure worker runs in UdpHubListener's thread for proper signal/slot handling
+    worker->moveToThread(this->thread());
+
+    // Connect worker's removal signal to our handler
+    connect(worker, &JackTripWorker::signalRemoveThread, this,
+            &UdpHubListener::handleWorkerRemoval, Qt::QueuedConnection);
+
+    // Derive the ICE UDP port from this worker's pre-assigned JackTrip port.
+    // In WebRTC mode JackTrip never binds that port itself (the data travels over
+    // the WebRTC data channel), so libjuice is free to use it.  This keeps all
+    // WebRTC traffic on the same port range that firewall rules already allow.
+    uint16_t workerPort = static_cast<uint16_t>(mBasePort + id);
+
+    // Have the worker create its own WebRTC peer connection
+    // The worker will handle connection lifecycle and start when ready
+    worker->createWebRtcPeerConnection(signalingSocket, mIceServers, workerPort,
+                                       workerPort);
+
+    // Note: We don't call setJackTrip yet because we don't have the data channel.
+    // The worker will be started when the data channel opens (handled by worker).
+    return id;
+}
+#endif  // WEBRTC_SUPPORT
+
+#ifdef WEBTRANSPORT_SUPPORT
+//*******************************************************************************
+int UdpHubListener::createWebTransportWorker(HQUIC connection,
+                                             const QHostAddress& peerAddress,
+                                             quint16 peerPort)
+{
+    QString tempName = QStringLiteral("");
+    int id           = createWorker(tempName);
+    if (id < 0) {
+        cerr << "UdpHubListener: createWorker failed - no available slots" << endl;
+        return -1;  // No available slots
+    }
+
+    JackTripWorker* worker = mJTWorkers->at(id);
+
+    // Move worker to UdpHubListener's thread since we're being called from msquic thread
+    // This ensures signals/slots use the correct event loop
+    worker->moveToThread(this->thread());
+
+    // Connect worker's removal signal to our handler
+    connect(worker, &JackTripWorker::signalRemoveThread, this,
+            &UdpHubListener::handleWorkerRemoval, Qt::QueuedConnection);
+
+    // Create WebTransport session with no parent initially (we're on msquic thread)
+    // The session takes ownership of the connection handle
+    WebTransportSession* session =
+        new WebTransportSession(mHttp3Server ? mHttp3Server->quicApi() : nullptr,
+                                connection, peerAddress, peerPort, nullptr);
+
+    // Move session to the same thread as the worker
+    session->moveToThread(this->thread());
+
+    // Have the worker use this session (will setParent to worker)
+    worker->createWebTransportSession(session);
+
+    // Note: Worker will be started when the session is established
+    return id;
+}
+
+#endif  // WEBTRANSPORT_SUPPORT
+
 // TODO:
 // USE bool QAbstractSocket::isValid () const to check if socket is connect. if not, exit
 // loop
