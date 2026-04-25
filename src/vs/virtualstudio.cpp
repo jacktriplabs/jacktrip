@@ -272,10 +272,12 @@ VirtualStudio::VirtualStudio(UserInterface& parent)
             s.flush();
             s.waitForBytesWritten(1000);
             if (bytesWritten != deepLinkBytes.size()) {
+                c.close();
                 std::cerr << "Failed to send deeplink" << std::endl;
                 std::exit(1);
             }
             std::cout << "sent deeplink: " << deepLinkStr.toStdString() << std::endl;
+            c.close();
             std::exit(0);
         }
     }

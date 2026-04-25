@@ -11,6 +11,7 @@
   - (fixed) Potential hub server crash if invalid peer settings
   - (fixed) Use DSCP value of 46 instead of 56 for UDP packets
   - (fixed) Added guards to protect against buffer overflows
+  - (fixed) Deep links were sometimes being ignored on Windows
   - (fixed) Stats timer lifecycle issues
 - Version: "2.7.2"
   Date: 2026-02-06
