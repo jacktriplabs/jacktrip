@@ -96,9 +96,10 @@ void SocketServer::handlePendingConnections()
             continue;
         }
 
-        // wait for 1 second for ready read, or else give up
-        bool readyToRead = connectedSocket->waitForReadyRead(timeout);
-        if (!readyToRead) {
+        // On Windows, QLocalSocket::waitForReadyRead can return false once the
+        // peer disconnects even if data is still queued in the read buffer.
+        if (!connectedSocket->waitForReadyRead(timeout)
+            && connectedSocket->bytesAvailable() <= 0) {
             qDebug() << "Socket server: timed out waiting for bytes available";
             continue;
         }
