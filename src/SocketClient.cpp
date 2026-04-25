@@ -52,7 +52,11 @@ SocketClient::~SocketClient()
 {
     if (isConnected() && m_owns_socket) {
         m_socket->close();
-        m_socket->waitForDisconnected(1000);  // wait for up to 1 second
+        // Windows can reach UnconnectedState synchronously; waitForDisconnected
+        // is not valid in that state.
+        if (m_socket->state() != QLocalSocket::UnconnectedState) {
+            m_socket->waitForDisconnected(1000);
+        }
     }
 }
 
@@ -69,7 +73,11 @@ void SocketClient::close()
 {
     if (isConnected()) {
         m_socket->close();
-        m_socket->waitForDisconnected(1000);  // wait for up to 1 second
+        // Windows can reach UnconnectedState synchronously; waitForDisconnected
+        // is not valid in that state.
+        if (m_socket->state() != QLocalSocket::UnconnectedState) {
+            m_socket->waitForDisconnected(1000);
+        }
     }
 }
 
