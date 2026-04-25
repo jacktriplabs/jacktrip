@@ -69,7 +69,6 @@
 #include "../AudioSocket.h"
 #include "../JackTrip.h"
 #include "../Settings.h"
-#include "../SocketClient.h"
 #include "../SocketServer.h"
 #include "../jacktrip_globals.h"
 #include "JTApplication.h"
@@ -254,38 +253,11 @@ VirtualStudio::VirtualStudio(UserInterface& parent)
     ts = new QTextStream(&outFile);
     qInstallMessageHandler(qtMessageHandler);
 
-    // check if started with a deep link to handle jacktrip://join/<StudioID>
-    QString deepLinkStr = m_interface.getSettings().getDeeplink();
-    if (!deepLinkStr.isEmpty()) {
-        // started with a deep link; check if another instance is already running
-        SocketClient c;
-        if (c.connect()) {
-            // existing instance found; send deeplink to it and exit
-            if (!c.sendHeader("deeplink")) {
-                c.close();
-                std::cerr << "Failed to send deeplink header" << std::endl;
-                std::exit(1);
-            }
-            QLocalSocket& s          = c.getSocket();
-            QByteArray deepLinkBytes = deepLinkStr.toLocal8Bit();
-            qint64 bytesWritten      = s.write(deepLinkBytes);
-            s.flush();
-            s.waitForBytesWritten(1000);
-            if (bytesWritten != deepLinkBytes.size()) {
-                c.close();
-                std::cerr << "Failed to send deeplink" << std::endl;
-                std::exit(1);
-            }
-            std::cout << "sent deeplink: " << deepLinkStr.toStdString() << std::endl;
-            c.close();
-            std::exit(0);
-        }
-    }
-
     // prepare handler for deep link requests
     m_deepLinkPtr.reset(new VsDeeplink());
     QObject::connect(m_deepLinkPtr.get(), &VsDeeplink::signalVsDeeplink, this,
                      &VirtualStudio::handleDeeplinkRequest, Qt::QueuedConnection);
+    QString deepLinkStr = m_interface.getSettings().getDeeplink();
     if (!deepLinkStr.isEmpty()) {
         QUrl deepLinkUrl(deepLinkStr);
         m_deepLinkPtr->handleUrl(deepLinkUrl);
