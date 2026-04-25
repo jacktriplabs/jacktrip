@@ -46,6 +46,7 @@
 #include "jacktrip_globals.h"
 
 #ifndef NO_GUI
+#include "SocketClient.h"
 #include "UserInterface.h"
 #endif
 
@@ -175,6 +176,30 @@ int main(int argc, char* argv[])
         // Start the GUI
         cliSettings.reset(new Settings(true));
         cliSettings->parseInput(argc, argv);
+        if (!cliSettings->getDeeplink().isEmpty()) {
+            SocketClient c;
+            if (c.connect()) {
+                if (!c.sendHeader(QStringLiteral("deeplink"))) {
+                    std::cerr << "Failed to send deeplink header" << std::endl;
+                    c.close();
+                    return 1;
+                }
+                QLocalSocket& s          = c.getSocket();
+                QByteArray deepLinkBytes = cliSettings->getDeeplink().toLocal8Bit();
+                qint64 bytesWritten      = s.write(deepLinkBytes);
+                s.flush();
+                s.waitForBytesWritten(1000);
+                if (bytesWritten != deepLinkBytes.size()) {
+                    std::cerr << "Failed to send deeplink" << std::endl;
+                    c.close();
+                    return 1;
+                }
+                std::cout << "sent deeplink: " << cliSettings->getDeeplink().toStdString()
+                          << std::endl;
+                c.close();
+                return 0;
+            }
+        }
         interface.reset(new UserInterface(cliSettings));
         interface->start(guiApp);
         return app->exec();
